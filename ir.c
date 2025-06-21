@@ -6,8 +6,6 @@
 #include "ir.h"
 #include "sysy.tab.h"
 
-
-
 // 用于表示函数参数类型列表的节点
 typedef struct TypeNode
 {
@@ -246,7 +244,7 @@ static char *generate_code(Node *node)
         }
         Symbol *sym = lookup_symbol(base_var_node->children[0]->name);
 
-        char element_type[64] = "i32"; // 简化，需要更复杂的类型推导
+        char element_type[64] = "i32";
         if (sym)
         {
             // 从数组类型 [10 x i32] 中提取元素类型 i32
@@ -344,7 +342,6 @@ static char *generate_code(Node *node)
             generate_code(node->children[0]->children[0]);
         return NULL;
     }
-
     // --- 表达式 ---
     if (strcmp(node->name, "BinaryOp") == 0)
     {
@@ -428,11 +425,41 @@ static char *generate_code(Node *node)
         }
     }
     if (strcmp(node->name, "UnaryOp") == 0)
-    { /* 与之前相同 */
+    {
+        char *operand_reg = generate_code(node->children[1]);
+        char *op_str = node->children[0]->name;
+
+        if (strcmp(op_str, "+") == 0)
+        {
+            return operand_reg; // 正号是无操作
+        }
+        else if (strcmp(op_str, "-") == 0)
+        {
+            char *res_reg = new_reg();
+            emit("  %s = sub i32 0, %s", res_reg, operand_reg);
+            free(operand_reg);
+            return res_reg;
+        }
+        else if (strcmp(op_str, "!") == 0)
+        {
+            char *cmp_reg = new_reg();
+            emit("  %s = icmp eq i32 %s, 0", cmp_reg, operand_reg);
+            char *res_reg = new_reg();
+            emit("  %s = zext i1 %s to i32", res_reg, cmp_reg);
+            free(operand_reg);
+            free(cmp_reg);
+            return res_reg;
+        }
+    }
+    // 数组初始化，安全处理以防崩溃
+    if (strcmp(node->name, "InitVal_Aggregate") == 0)
+    {
+        emit("  ; aggregate initializer not fully implemented");
+        return strdup("0"); // 返回一个哑元值
     }
 
-    // --- 表达式基础 ---
-    if (strcmp(node->name, "LVal") == 0 || strcmp(node->name, "ArrayAccess") == 0)
+    // LVal作为右值使用
+    if (strcmp(node->name, "ArrayAccess") == 0 || (strcmp(node->name, "LVal") == 0 && node->num_children == 1))
     {
         char *ptr_reg = generate_lval_address(node);
         char *val_reg = new_reg();
@@ -443,11 +470,17 @@ static char *generate_code(Node *node)
     }
 
     if (node->num_children == 0)
-    { // 叶子节点: INCONST, IDENT等
-        return strdup(node->name);
+    { // 叶子节点: INCONST, IDENT
+        Symbol *sym = lookup_symbol(node->name);
+        if (sym && !sym->is_func)
+        { // 这是一个已声明的变量
+            char *val_reg = new_reg();
+            emit("  %s = load %s, %s* %s", val_reg, sym->type, sym->type, sym->llvm_reg);
+            return val_reg;
+        }
+        return strdup(node->name); // 否则是数字字面量或函数名
     }
 
-    // 默认行为：处理单孩子链式节点，如 Exp -> AddExp -> MulExp ...
     if (node->num_children == 1)
     {
         return generate_code(node->children[0]);
@@ -459,6 +492,7 @@ static char *generate_code(Node *node)
 /* ================================================================== */
 /* 辅助函数 (Helpers)                                           */
 /* ================================================================== */
+// get_type_str: 从类型节点获取LLVM类型字符串
 static char *get_type_str(Node *type_node)
 {
     if (strcmp(type_node->name, "int") == 0)
@@ -468,26 +502,63 @@ static char *get_type_str(Node *type_node)
     return "void";
 }
 
-static void process_block_item_list(Node *n)
+// generate_lval_address: 为左值(LVal)生成地址
+static char *generate_lval_address(Node *node)
 {
-    if (!n || n->num_children == 0)
-        return;
-    generate_code(n->children[0]);
-    process_block_item_list(n->children[1]);
-}
+    // 基准情形：一个简单的变量 (e.g., "a")
+    // AST 结构是 LVal -> IDENT("a")
+    if (strcmp(node->name, "LVal") == 0)
 
+    {
+        // LVal 节点的孩子才是真正的标识符节点
+        Node *ident_node = node->children[0];
+        Symbol *sym = lookup_symbol(ident_node->name);
+        if (sym)
+
+        {
+            // 确保找到的是变量而不是函数
+            if (sym->is_func)
+            {
+                fprintf(stderr, "FATAL: Cannot take address of function '%s'.\n", ident_node->name);
+                exit(1);
+            }
+            return strdup(sym->llvm_reg);
+        }
+        fprintf(stderr, "FATAL: Undefined symbol '%s' used as LVal.\n", ident_node->name);
+        exit(1);
+    }
+
+    if (strcmp(node->name, "ArrayAccess") == 0)
+    {
+        // 递归调用以获取数组或子数组的基地址
+        char *base_ptr_reg = generate_lval_address(node->children[0]);
+        char *index_val_reg = generate_code(node->children[1]);
+        char *res_ptr_reg = new_reg();
+        emit(" %s = getelementptr i32, i32* %s, i32 %s", res_ptr_reg, base_ptr_reg, index_val_reg);
+        free(base_ptr_reg);
+        free(index_val_reg);
+        return res_ptr_reg;
+    }
+
+    fprintf(stderr, "FATAL: generate_lval_address called with unexpected node type '%s'.\n", node->name);
+    exit(1);
+    return NULL; // 永不执行
+}
+// build_array_type_str: 递归构建数组类型字符串
 static void build_array_type_str(Node *dim_node, char *type_str_builder)
 {
     if (!dim_node || dim_node->num_children == 0)
         return;
-    char *const_val_str = dim_node->children[0]->children[0]->name; // ConstExp -> AddExp -> ... -> Number -> INCONST
+    char *const_val_str = generate_code(dim_node->children[0]);
     char temp[64];
     sprintf(temp, "[%s x ", const_val_str);
     strcat(type_str_builder, temp);
+    free(const_val_str);
     build_array_type_str(dim_node->children[1], type_str_builder);
     strcat(type_str_builder, "]");
 }
 
+// process_var_def_list: 健壮的、递归处理变量定义列表的函数
 static void process_var_def_list(Node *n, const char *base_type)
 {
     if (!n || n->num_children == 0)
@@ -495,8 +566,10 @@ static void process_var_def_list(Node *n, const char *base_type)
     Node *var_def_node = n->children[0];
     char *var_name = var_def_node->children[0]->name;
     Node *dim_list = var_def_node->children[1];
+
     char type_builder[512] = "";
-    build_array_type_str(dim_list, type_builder);
+    if (dim_list->num_children > 0)
+        build_array_type_str(dim_list, type_builder);
     strcat(type_builder, base_type);
 
     char *ptr_reg = new_reg();
@@ -505,54 +578,33 @@ static void process_var_def_list(Node *n, const char *base_type)
 
     if (strcmp(var_def_node->name, "VarDef_Init") == 0)
     {
-        // 数组初始化逻辑较为复杂，此处简化
-        char *init_val_reg = generate_code(var_def_node->children[2]);
-        emit("  ; array init for %s not fully implemented", var_name);
-        free(init_val_reg);
+        char *init_val = generate_code(var_def_node->children[2]);
+        if (strcmp(init_val, "0") != 0)
+        { // 仅处理非聚合初始化
+            emit("  store %s %s, %s* %s", base_type, init_val, type_builder, ptr_reg);
+        }
+        free(init_val);
     }
     free(ptr_reg);
-
     if (n->num_children > 1)
         process_var_def_list(n->children[1], base_type);
 }
 
-static char *generate_lval_address(Node *node)
+// process_block_item_list: 健壮的、递归处理语句块内条目的函数
+static void process_block_item_list(Node *n)
 {
-    // Base Case: IDENT
-    if (strcmp(node->name, "IDENT") == 0)
-    {
-        Symbol *sym = lookup_symbol(node->name);
-        if (sym)
-            return strdup(sym->llvm_reg);
-        return NULL;
-    }
-    // Recursive Step: ArrayAccess
-    if (strcmp(node->name, "ArrayAccess") == 0)
-    {
-        char *base_ptr_reg = generate_lval_address(node->children[0]);
-        char *index_val_reg = generate_code(node->children[1]);
-        char *res_ptr_reg = new_reg();
-
-        // 获取基类型的指针，例如 [10 x i32]* 的基类型是 [10 x i32]
-        // 这是一个简化，实际需要一个函数来从符号表和 GEP 链中推导类型
-        emit("  %s = getelementptr inbounds i32, i32* %s, i32 %s", res_ptr_reg, base_ptr_reg, index_val_reg);
-
-        free(base_ptr_reg);
-        free(index_val_reg);
-        return res_ptr_reg;
-    }
-    // LVal -> IDENT
-    if (strcmp(node->name, "LVal") == 0)
-    {
-        return generate_lval_address(node->children[0]);
-    }
-    return NULL;
+    if (!n || n->num_children == 0)
+        return;
+    generate_code(n->children[0]);
+    process_block_item_list(n->children[1]);
 }
 
+// 修正：健壮的参数类型列表构建函数
 static void process_param_types(Node *n, TypeNode **head_ref)
 {
     if (!n || n->num_children == 0)
         return;
+    // 先递归，再头插，实现链表反转，得到正确顺序
     if (n->num_children > 1)
         process_param_types(n->children[1], head_ref);
     Node *param_node = n->children[0];
@@ -562,6 +614,7 @@ static void process_param_types(Node *n, TypeNode **head_ref)
     *head_ref = new_tn;
 }
 
+// 修正：健壮的函数形参处理函数
 static void process_formal_params(Node *n, int *count)
 {
     if (!n || n->num_children == 0)
@@ -580,6 +633,7 @@ static void process_formal_params(Node *n, int *count)
         process_formal_params(n->children[1], count);
 }
 
+// 修正：健壮的函数实参处理函数
 static void process_actual_params(Node *n, char *arg_reg_list[], int *count)
 {
     if (!n || n->num_children == 0)
