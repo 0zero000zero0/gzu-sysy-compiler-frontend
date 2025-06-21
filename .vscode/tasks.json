@@ -1,0 +1,32 @@
+{
+    "tasks": [
+        {
+            "type": "cppbuild",
+            "label": "build",
+            "command": "gcc",
+            "args": [
+                "-fdiagnostics-color=always",
+                "-g",
+                "/home/zdw/sysy/sysy.tab.c",
+                "/home/zdw/sysy/lex.yy.c",
+                "/home/zdw/sysy/ir.c",
+                "/home/zdw/sysy/node.c",
+                "-o",
+                "/home/zdw/sysy/exe/sysy_complier",
+                "-lfl"
+            ],
+            "options": {
+                "cwd": "${fileDirname}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "detail": "调试器生成的任务。"
+        }
+    ],
+    "version": "2.0.0"
+}

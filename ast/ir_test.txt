@@ -1,0 +1,41 @@
+<CompUnit>
+|--<FuncDef>
+   |--int
+   |--main
+   |--FuncFParamsOpt
+   |--<Block>
+      |--<BlockItemList>
+         |--<VarDecl>
+            |--int
+            |--<VarDef_List>
+               |--<VarDef>
+                  |--a
+                  |--ArrayDimList
+         |--<BlockItemList>
+            |--<VarDecl>
+               |--int
+               |--<VarDef_List>
+                  |--<VarDef>
+                     |--b
+                     |--ArrayDimList
+            |--<BlockItemList>
+               |--<AssignStmt>
+                  |--<LVal>
+                     |--a
+                  |--1
+               |--<BlockItemList>
+                  |--<AssignStmt>
+                     |--<LVal>
+                        |--b
+                     |--2
+                  |--<BlockItemList>
+                     |--<ReturnStmt>
+                        |--<ExpOpt>
+                           |--<BinaryOp>
+                              |--+
+                              |--<LVal>
+                                 |--a
+                              |--<LVal>
+                                 |--b
+                     |--BlockItemList
+|--CompUnit
