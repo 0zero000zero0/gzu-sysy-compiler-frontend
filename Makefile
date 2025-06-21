@@ -9,10 +9,11 @@ LL_FILES := $(patsubst $(TEST_SRC_DIR)/%.c,$(LL_DIR)/%.ll,$(TEST_C_FILES))
 
 test: build
 	@for file in $(TEST_C_FILES); do \
-    	echo "Compiling $$file..."; \
+    	# echo "Compiling $$file..."; \
         base="$${file##*/}"; \
         noext="$${base%.*}"; \
         ./exe/sysy_complier "$$file" "$(LL_DIR)/$$noext.ll" "$(CST_DIR)/$$noext.txt"; \
+		lli "$(LL_DIR)/$$noext.ll"; \
     done
 
 build: flex bison

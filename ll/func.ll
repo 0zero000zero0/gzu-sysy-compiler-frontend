@@ -17,8 +17,8 @@ entry:
 
 define dso_local i32 @main() #0 {
 entry:
-  %10 = alloca i32
-  %11 = alloca i32
+ %10 = alloca i32
+ %11 = alloca i32
   store i32 3, i32* %10
   store i32 4, i32* %11
   %12 = load i32, i32* %10

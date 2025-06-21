@@ -1,14 +1,14 @@
 
 define dso_local i32 @main() #0 {
 entry:
-  %1 = alloca i32
-  %2 = alloca i32
+ %1 = alloca i32
+ %2 = alloca i32
   store i32 100, i32* %1
   store i32 0, i32* %2
   br label %while_cond1
 while_cond1:
   %3 = load i32, i32* %1
-  %4 = icmp i32 %3, 10
+  %4 = icmp sgt i32 %3, 10
   %5 = icmp ne i32 %4, 0
   br i1 %5, label %while_body2, label %while_after3
 while_body2:

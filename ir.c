@@ -46,6 +46,8 @@ static IRGenerator generator;
 static char *get_type_str(Node *type_node);
 static char *generate_lval_address(Node *node);
 static void emit(const char *format, ...);
+static void get_dimensions(Node *dim_node, int *dims, int *num_dims);
+static void generate_initializer_stores(Node *init_node, char *base_ptr, char *llvm_type, int *dims, int num_dims, int *flat_index);
 
 // 符号表管理
 static void enter_scope()
@@ -378,7 +380,16 @@ static char *generate_code(Node *node)
             else if (strcmp(op_str, ">=") == 0)
                 op_code = "sge";
         }
-        emit("  %s = %s %s %s, %s", res_reg, is_cmp ? "icmp" : op_code, type, left_reg, right_reg);
+        if (is_cmp)
+        {
+            // 为比较指令使用正确的格式，插入op_code
+            emit("  %s = icmp %s %s %s, %s", res_reg, op_code, type, left_reg, right_reg);
+        }
+        else
+        {
+            // 为算术指令使用原来的格式
+            emit("  %s = %s %s %s, %s", res_reg, op_code, type, left_reg, right_reg);
+        }
         free(left_reg);
         free(right_reg);
         return res_reg;
@@ -558,36 +569,165 @@ static void build_array_type_str(Node *dim_node, char *type_str_builder)
     strcat(type_str_builder, "]");
 }
 
+static char *build_llvm_type_str(Node *dim_node, const char *base_type)
+{
+    // 基准情形：没有更多维度了，返回当前构建的类型
+    if (!dim_node || dim_node->num_children == 0)
+    {
+        return strdup(base_type);
+    }
+
+    // 递归步骤：先为内部维度构建类型
+    // dim_node->children[1] 是剩余的维度列表
+    char *inner_type = build_llvm_type_str(dim_node->children[1], base_type);
+
+    // 获取当前维度的尺寸
+    char *dim_size_str = generate_code(dim_node->children[0]);
+
+    // 构建当前维度的类型字符串
+    char result_buf[512];
+    sprintf(result_buf, "[%s x %s]", dim_size_str, inner_type);
+
+    // 释放中间结果
+    free(inner_type);
+    free(dim_size_str);
+
+    return strdup(result_buf);
+}
+
 // process_var_def_list: 健壮的、递归处理变量定义列表的函数
 static void process_var_def_list(Node *n, const char *base_type)
 {
     if (!n || n->num_children == 0)
         return;
+
     Node *var_def_node = n->children[0];
     char *var_name = var_def_node->children[0]->name;
-    Node *dim_list = var_def_node->children[1];
+    Node *dim_list_node = var_def_node->children[1];
 
-    char type_builder[512] = "";
-    if (dim_list->num_children > 0)
-        build_array_type_str(dim_list, type_builder);
-    strcat(type_builder, base_type);
+    char *llvm_type = build_llvm_type_str(dim_list_node, base_type);
 
     char *ptr_reg = new_reg();
-    emit("  %s = alloca %s", ptr_reg, type_builder);
-    add_symbol(var_name, type_builder, ptr_reg, 0);
+    emit(" %s = alloca %s", ptr_reg, llvm_type);
+    add_symbol(var_name, llvm_type, ptr_reg, 0);
+
+    // --- 初始化逻辑 ---
+    // 无论是部分初始化还是不初始化，都先全部置零
+    if (dim_list_node->num_children > 0)
+    { // 仅对数组进行
+        emit("  store %s zeroinitializer, %s* %s", llvm_type, llvm_type, ptr_reg);
+    }
 
     if (strcmp(var_def_node->name, "VarDef_Init") == 0)
     {
-        char *init_val = generate_code(var_def_node->children[2]);
-        if (strcmp(init_val, "0") != 0)
-        { // 仅处理非聚合初始化
-            emit("  store %s %s, %s* %s", base_type, init_val, type_builder, ptr_reg);
+        Node *init_val_node = var_def_node->children[2];
+
+        // 检查是聚合初始化还是简单变量初始化
+        if (dim_list_node->num_children > 0)
+        {                 // 数组聚合初始化
+            int dims[10]; // 最多支持10维
+            int num_dims = 0;
+            get_dimensions(dim_list_node, dims, &num_dims);
+
+            int flat_index = 0;
+            if (init_val_node->children[0]->num_children > 0)
+            { // 如果 {} 不为空
+                generate_initializer_stores(init_val_node->children[0], ptr_reg, llvm_type, dims, num_dims, &flat_index);
+            }
         }
-        free(init_val);
+        else
+        { // 简单变量初始化
+            char *init_val = generate_code(init_val_node);
+            emit("  store %s %s, %s* %s", base_type, init_val, base_type, ptr_reg);
+            free(init_val);
+        }
     }
+
+    free(llvm_type);
     free(ptr_reg);
+
     if (n->num_children > 1)
-        process_var_def_list(n->children[1], base_type);
+
+    {
+        process_var_def_list(n->children[n->num_children - 1], base_type);
+    }
+}
+// 从维度AST节点中提取维度信息
+static void get_dimensions(Node *dim_node, int *dims, int *num_dims)
+{
+    if (!dim_node || dim_node->num_children == 0)
+    {
+        return;
+    }
+    char *dim_str = generate_code(dim_node->children[0]);
+    dims[(*num_dims)++] = atoi(dim_str);
+    free(dim_str);
+    get_dimensions(dim_node->children[1], dims, num_dims);
+}
+
+// 核心递归函数，生成初始化存储指令
+static void generate_initializer_stores(Node *init_node, char *base_ptr, char *llvm_type, int *dims, int num_dims, int *flat_index)
+{
+    if (!init_node)
+        return;
+
+    // 情况1: 当前初始化项是一个表达式 (例如, 5)
+    if (strcmp(init_node->name, "ConstExp") == 0 || strcmp(init_node->name, "Exp") == 0)
+    {
+        char *val_reg = generate_code(init_node);
+
+        // 计算多维索引
+        char gep_indices[256] = "i32 0"; // GEP的第一个索引总是i32 0
+        char temp[32];
+        int temp_index = *flat_index;
+        for (int i = 0; i < num_dims; i++)
+        {
+            int dim_prod = 1;
+            for (int j = i + 1; j < num_dims; j++)
+            {
+                dim_prod *= dims[j];
+            }
+            int index_i = temp_index / dim_prod;
+            sprintf(temp, ", i32 %d", index_i);
+            strcat(gep_indices, temp);
+            temp_index %= dim_prod;
+        }
+
+        char *element_ptr = new_reg();
+        char *element_type = strchr(llvm_type, 'x'); // 粗略获取元素类型
+        if (!element_type)
+            element_type = "i32";
+        else
+            element_type += 2; // e.g., from "[10 x i32]" get "i32]"
+
+        char clean_element_type[64];
+        sscanf(element_type, "%s", clean_element_type);
+        if (strchr(clean_element_type, ']'))
+            *strchr(clean_element_type, ']') = '\0';
+
+        emit("  %s = getelementptr inbounds %s, %s* %s, %s", element_ptr, llvm_type, llvm_type, base_ptr, gep_indices);
+        emit("  store %s %s, %s* %s", clean_element_type, val_reg, clean_element_type, element_ptr);
+
+        free(val_reg);
+        free(element_ptr);
+        (*flat_index)++;
+    }
+    // 情况2: 当前初始化项是另一个列表 (例如, { ... })
+    else if (strcmp(init_node->name, "InitVal_Aggregate") == 0)
+    {
+        generate_initializer_stores(init_node->children[0], base_ptr, llvm_type, dims, num_dims, flat_index);
+    }
+    // 情况3: 这是一个初始化值列表节点
+    else if (strcmp(init_node->name, "ConstInitVal_List") == 0 || strcmp(init_node->name, "InitVal_List") == 0)
+    {
+        // 先处理当前节点的值
+        generate_initializer_stores(init_node->children[0], base_ptr, llvm_type, dims, num_dims, flat_index);
+        // 递归处理列表的剩余部分
+        if (init_node->num_children > 1)
+        {
+            generate_initializer_stores(init_node->children[1], base_ptr, llvm_type, dims, num_dims, flat_index);
+        }
+    }
 }
 
 // process_block_item_list: 健壮的、递归处理语句块内条目的函数

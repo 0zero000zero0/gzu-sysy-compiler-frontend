@@ -1,15 +1,15 @@
 
 define dso_local i32 @main() #0 {
 entry:
-  %1 = alloca i32
-  %2 = alloca i32
-  %3 = alloca i32
+ %1 = alloca i32
+ %2 = alloca i32
+ %3 = alloca i32
   store i32 0, i32* %1
   store i32 1, i32* %2
   br label %while_cond1
 while_cond1:
   %4 = load i32, i32* %2
-  %5 = icmp i32 %4, 9527
+  %5 = icmp slt i32 %4, 9527
   %6 = icmp ne i32 %5, 0
   br i1 %6, label %while_body2, label %while_after3
 while_body2:
@@ -18,7 +18,7 @@ while_body2:
   br label %while_cond4
 while_cond4:
   %8 = load i32, i32* %3
-  %9 = icmp i32 %8, 0
+  %9 = icmp sgt i32 %8, 0
   %10 = icmp ne i32 %9, 0
   br i1 %10, label %while_body5, label %while_after6
 while_body5:
@@ -28,7 +28,7 @@ while_body5:
   br label %while_cond4
 while_after6:
   %13 = load i32, i32* %3
-  %14 = icmp i32 %13, 0
+  %14 = icmp eq i32 %13, 0
   %15 = icmp ne i32 %14, 0
   br i1 %15, label %if_then7, label %if_merge9
 if_then7:
