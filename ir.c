@@ -1,10 +1,10 @@
+#include "ir.h"
+#include "sysy.tab.h"
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include "ir.h"
-#include "sysy.tab.h"
 
 // 用于表示函数参数类型列表的节点
 typedef struct TypeNode
@@ -771,10 +771,18 @@ static Value *generate_code(Node *node)
         }
         if (strchr(node->name, '.') || strchr(node->name, 'e') || strchr(node->name, 'E'))
         {
-            double float_val = atof(node->name);
-            char hex_float_buf[64];
-            sprintf(hex_float_buf, "%f", float_val);
-            return new_value(hex_float_buf, "float");
+            /* 1) 解析源文本为 float */
+            float f_val = (float)atof(node->name);
+            /* 2) 拿到 IEEE-754 位模式 */
+            union {
+                float f;
+                uint32_t u;
+            } bits = {.f = f_val};
+            /* 3) 生成 LLVM 常量表达式 */
+            char buf[64];
+            /* 1062314765 == 0x3FDD_B22D，对应 1.732 */
+            snprintf(buf, sizeof(buf), "bitcast (i32 %u to float)", bits.u);
+            return new_value(strdup(buf), "float");
         }
         return new_value(node->name, "i32");
     }
