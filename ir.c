@@ -85,7 +85,6 @@ static void generate_initializer_stores(Node *init_node, char *base_ptr, char *l
 static void count_params(Node *n, int *count);
 static int is_scalar_init(Node *n);
 
-
 // 符号表管理
 static void enter_scope()
 {
@@ -207,20 +206,20 @@ static Value *generate_code(Node *node)
         }
         return NULL;
     }
-    if (strcmp(node->name, "Block") == 0)
+    else if (strcmp(node->name, "Block") == 0)
     {
         enter_scope();
         process_block_item_list(node->children[0]);
         exit_scope();
         return NULL;
     }
-    if (strcmp(node->name, "VarDecl") == 0 || strcmp(node->name, "ConstDecl") == 0)
+    else if (strcmp(node->name, "VarDecl") == 0 || strcmp(node->name, "ConstDecl") == 0)
     {
         char *type = get_type_str(node->children[0]);
         process_var_def_list(node->children[1], type);
         return NULL;
     }
-    if (strcmp(node->name, "FuncDef") == 0)
+    else if (strcmp(node->name, "FuncDef") == 0)
     {
         char *return_type_str = get_type_str(node->children[0]);
         char *func_name = node->children[1]->name;
@@ -270,7 +269,7 @@ static Value *generate_code(Node *node)
         return NULL;
     }
 
-    if (strcmp(node->name, "ExpStmt") == 0)
+    else if (strcmp(node->name, "ExpStmt") == 0)
     {
         if (node->num_children > 0 && node->children[0]->num_children > 0)
         {
@@ -280,7 +279,7 @@ static Value *generate_code(Node *node)
     }
 
     // --- Statements ---
-    if (strcmp(node->name, "AssignStmt") == 0)
+    else if (strcmp(node->name, "AssignStmt") == 0)
     {
         Value *rhs_val = generate_code(node->children[1]);
         char *lhs_ptr_reg = generate_lval_address(node->children[0]);
@@ -323,7 +322,7 @@ static Value *generate_code(Node *node)
         return rhs_val;
     }
 
-    if (strcmp(node->name, "ReturnStmt") == 0)
+    else if (strcmp(node->name, "ReturnStmt") == 0)
     {
         if (node->children[0]->num_children > 0)
         {
@@ -358,8 +357,8 @@ static Value *generate_code(Node *node)
     }
 
     // --- Control Flow ---
-    if (strcmp(node->name, "IfStmt") == 0 || strcmp(node->name, "IfElseStmt") == 0 ||
-        strcmp(node->name, "WhileStmt") == 0)
+    else if (strcmp(node->name, "IfStmt") == 0 || strcmp(node->name, "IfElseStmt") == 0 ||
+             strcmp(node->name, "WhileStmt") == 0)
     {
         char *then_label = NULL, *else_label = NULL, *merge_label = NULL, *cond_label = NULL, *body_label = NULL;
         Value *cond_val;
@@ -486,7 +485,7 @@ static Value *generate_code(Node *node)
         free(body_label);
         return NULL;
     }
-    if (strcmp(node->name, "BreakStmt") == 0)
+    else if (strcmp(node->name, "BreakStmt") == 0)
     {
         if (generator.loop_label_stack)
         { // 检查是否在循环内
@@ -502,7 +501,7 @@ static Value *generate_code(Node *node)
         return NULL;
     }
 
-    if (strcmp(node->name, "ContinueStmt") == 0)
+    else if (strcmp(node->name, "ContinueStmt") == 0)
     {
         if (generator.loop_label_stack)
         { // 检查是否在循环内
@@ -519,7 +518,7 @@ static Value *generate_code(Node *node)
     }
 
     // --- Expressions ---
-    if (strcmp(node->name, "BinaryOp") == 0)
+    else if (strcmp(node->name, "BinaryOp") == 0)
     {
         Value *left = generate_code(node->children[1]);
         Value *right = generate_code(node->children[2]);
@@ -624,7 +623,7 @@ static Value *generate_code(Node *node)
         return new_value(res_reg, result_type);
     }
 
-    if (strcmp(node->name, "UnaryOp") == 0)
+    else if (strcmp(node->name, "UnaryOp") == 0)
     {
         Value *operand = generate_code(node->children[1]);
         char *op_str = node->children[0]->name;
@@ -656,7 +655,7 @@ static Value *generate_code(Node *node)
         }
     }
 
-    if (strcmp(node->name, "FuncCall") == 0)
+    else if (strcmp(node->name, "FuncCall") == 0)
     {
         char *func_name = node->children[0]->name;
         Symbol *func_sym = lookup_symbol(func_name);
@@ -737,11 +736,11 @@ static Value *generate_code(Node *node)
         return return_value;
     }
 
-    if (strcmp(node->name, "InitVal_Aggregate") == 0)
+    else if (strcmp(node->name, "InitVal_Aggregate") == 0)
         return new_value("0", "i32");
 
     // --- Primitives (LVal, Literals) ---
-    if (strcmp(node->name, "ArrayAccess") == 0 || (strcmp(node->name, "LVal") == 0 && node->num_children == 1))
+    else if (strcmp(node->name, "ArrayAccess") == 0 || (strcmp(node->name, "LVal") == 0 && node->num_children == 1))
     {
         char *ptr_reg = generate_lval_address(node);
         char element_type[64];
@@ -760,7 +759,7 @@ static Value *generate_code(Node *node)
         return new_value(val_reg, element_type);
     }
 
-    if (node->num_children == 0)
+    else if (node->num_children == 0)
     {
         Symbol *sym = lookup_symbol(node->name);
         if (sym && !sym->is_func)
@@ -771,23 +770,20 @@ static Value *generate_code(Node *node)
         }
         if (strchr(node->name, '.') || strchr(node->name, 'e') || strchr(node->name, 'E'))
         {
-            /* 1) 解析源文本为 float */
             float f_val = (float)atof(node->name);
-            /* 2) 拿到 IEEE-754 位模式 */
-            union {
+            union
+            {
                 float f;
                 uint32_t u;
             } bits = {.f = f_val};
-            /* 3) 生成 LLVM 常量表达式 */
             char buf[64];
-            /* 1062314765 == 0x3FDD_B22D，对应 1.732 */
             snprintf(buf, sizeof(buf), "bitcast (i32 %u to float)", bits.u);
             return new_value(strdup(buf), "float");
         }
         return new_value(node->name, "i32");
     }
 
-    if (node->num_children == 1)
+    else if (node->num_children == 1)
         return generate_code(node->children[0]);
     return NULL;
 }
