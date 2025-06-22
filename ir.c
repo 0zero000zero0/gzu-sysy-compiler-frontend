@@ -83,6 +83,8 @@ static void get_dimensions(Node *dim_node, int *dims, int *num_dims);
 static void generate_initializer_stores(Node *init_node, char *base_ptr, char *llvm_type, int *dims, int num_dims,
                                         int *flat_index);
 static void count_params(Node *n, int *count);
+static int is_scalar_init(Node *n);
+
 
 // 符号表管理
 static void enter_scope()
@@ -982,7 +984,7 @@ static void generate_initializer_stores(Node *init_node, char *base_ptr, char *l
         return;
 
     // 基准情形: 节点是一个最终的数值表达式
-    if (strcmp(init_node->name, "ConstExp") == 0 || strcmp(init_node->name, "Exp") == 0)
+    if (is_scalar_init(init_node))
     {
         Value *val = generate_code(init_node);
 
@@ -1026,10 +1028,8 @@ static void generate_initializer_stores(Node *init_node, char *base_ptr, char *l
     // 递归情形: 节点是任何类型的包装器或列表
     else
     {
-        for (int i = 0; i < init_node->num_children; i++)
-        {
+        for (int i = 0; i < init_node->num_children; ++i)
             generate_initializer_stores(init_node->children[i], base_ptr, llvm_type, dims, num_dims, flat_index);
-        }
     }
 }
 
@@ -1156,6 +1156,11 @@ static void write_ir_to_file(const char *filename)
     fclose(out);
 }
 
+static int is_scalar_init(Node *n)
+{
+    /* 叶子节点或明确的 ConstExp / Exp 都视为一个可直接求值的标量 */
+    return (n->num_children == 0) || strcmp(n->name, "ConstExp") == 0 || strcmp(n->name, "Exp") == 0;
+}
 // 公共入口点
 
 void generate_llvm_ir(Node *root, const char *output_filename)
