@@ -6,9 +6,9 @@
       "request": "launch",
       "program": "/home/zdw/sysy/exe/sysy_complier",
       "args": [
-        "/home/zdw/sysy/test/while_if.c",
-        "/home/zdw/sysy/ll/while_if.ll",
-        "/home/zdw/sysy/ast/while_if.txt"
+        "/home/zdw/sysy/test/func.c",
+        "/home/zdw/sysy/ll/func.ll",
+        "/home/zdw/sysy/ast/func.txt"
       ],
       "stopAtEntry": false,
       "cwd": "${fileDirname}",
