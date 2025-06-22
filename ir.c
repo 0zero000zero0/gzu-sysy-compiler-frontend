@@ -298,11 +298,19 @@ static Value *generate_code(Node *node)
 
         emit("\tstore %s %s, %s* %s", lhs_type, final_rhs_reg, lhs_type, lhs_ptr_reg);
 
-        if (final_rhs_reg != rhs_val->reg)
-            free(final_rhs_reg);
-        freeValue(rhs_val);
+        // 释放此函数内部分配的资源
         free(lhs_ptr_reg);
-        return NULL;
+        if (final_rhs_reg != rhs_val->reg)
+        {
+            free(rhs_val->reg);           // 释放旧的寄存器名
+            rhs_val->reg = final_rhs_reg; // 更新为新的寄存器名
+            // 注意：这里我们假设 rhs_val->type 也需要更新，但赋值表达式的值类型应与左值匹配
+            free(rhs_val->type);
+            rhs_val->type = strdup(lhs_type);
+        }
+
+        // 将 rhs_val 的所有权转移给调用者，不再在此处释放
+        return rhs_val;
     }
 
     if (strcmp(node->name, "ReturnStmt") == 0)
@@ -310,6 +318,12 @@ static Value *generate_code(Node *node)
         if (node->children[0]->num_children > 0)
         {
             Value *ret_val = generate_code(node->children[0]->children[0]);
+            // 增加健壮性检查
+            if (!ret_val)
+            {
+                fprintf(stderr, "FATAL: Expression in return statement produced no value.\n");
+                exit(1);
+            }
             char *final_ret_reg = ret_val->reg;
 
             if (strcmp(generator.current_func_ret_type, ret_val->type) != 0)
@@ -454,7 +468,7 @@ static Value *generate_code(Node *node)
             freeValue(right);
             return newValue(res_reg, "i1"); // 逻辑运算的结果也是 i1
         }
-        
+
         char op_code_buf[16], *result_type = "i32", *op_prefix = "";
         int is_cmp = 0;
 
@@ -573,8 +587,89 @@ static Value *generate_code(Node *node)
     }
 
     if (strcmp(node->name, "FuncCall") == 0)
-    { /* ... Similar logic as before but using Value* ... */
+    {
+        // 1. 查找函数信息
+        char *func_name = node->children[0]->name;
+        Symbol *func_sym = lookup_symbol(func_name);
+
+        // 健壮性检查：如果函数未定义，则报错退出
+        if (!func_sym || !func_sym->is_func)
+        {
+            fprintf(stderr, "FATAL: Call to undefined or non-function '%s'.\n", func_name);
+            exit(1);
+        }
+
+        // 2. 处理实际参数
+        Value *arg_vals[32]; // 假设最多32个参数
+        int arg_count = 0;
+        Node *params_node = node->children[1]; // FuncRParams 节点
+
+        // 如果存在参数节点 (FuncRParams) 且它有子节点 (ExpList)
+        if (params_node && params_node->num_children > 0)
+        {
+            Node *exp_list_node = params_node->children[0];
+            // 循环遍历表达式列表 (ExpList)
+            while (exp_list_node && exp_list_node->num_children > 0)
+            {
+                // 为每个参数表达式生成代码，并将结果存入数组
+                arg_vals[arg_count++] = generate_code(exp_list_node->children[0]);
+
+                // 移动到下一个 ExpList 节点（如果存在）
+                if (exp_list_node->num_children > 1)
+                {
+                    exp_list_node = exp_list_node->children[1];
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+
+        // 3. 构建LLVM call指令的参数字符串
+        char args_str[2048] = "";
+        // 注意：这里的实现未做详细的实参-形参类型检查与隐式转换，
+        // 仅使用生成代码时的类型。一个更完备的编译器需要在这里进行类型匹配。
+        for (int i = 0; i < arg_count; i++)
+        {
+            char temp_buf[128];
+            sprintf(temp_buf, "%s %s", arg_vals[i]->type, arg_vals[i]->reg);
+            strcat(args_str, temp_buf);
+            if (i < arg_count - 1)
+            {
+                strcat(args_str, ", ");
+            }
+        }
+
+        // 4. 根据函数返回类型，生成 call 指令并返回相应的值
+        Value *return_value = NULL;
+        if (strcmp(func_sym->type, "void") == 0)
+        {
+            // 如果是 void 函数，call 指令没有返回值
+            emit("\tcall void @%s(%s)", func_name, args_str);
+            // void 函数调用的值是 NULL
+            return_value = NULL;
+        }
+        else
+        {
+            // 如果有返回值，call 指令的结果存入一个新寄存器
+            char *res_reg = new_reg();
+            emit("\t%s = call %s @%s(%s)", res_reg, func_sym->type, func_name, args_str);
+            // 创建一个新的 Value* 来代表函数调用的结果
+            return_value = newValue(res_reg, func_sym->type);
+        }
+
+        // 5. 清理为参数动态分配的内存
+        for (int i = 0; i < arg_count; i++)
+        {
+            freeValue(arg_vals[i]);
+        }
+
+        // 返回函数调用的结果（对于 void 函数是 NULL，否则是一个新的 Value*）
+        return return_value;
     }
+
+
     if (strcmp(node->name, "InitVal_Aggregate") == 0)
         return newValue("0", "i32");
 

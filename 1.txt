@@ -1,0 +1,23 @@
+./exe/sysy_complier test/array.c ll/array.ll ast/array.txt
+./exe/sysy_complier test/assign.c ll/assign.ll ast/assign.txt
+./exe/sysy_complier test/break.c ll/break.ll ast/break.txt
+./exe/sysy_complier test/continue.c ll/continue.ll ast/continue.txt
+./exe/sysy_complier test/float.c ll/float.ll ast/float.txt
+./exe/sysy_complier test/func.c ll/func.ll ast/func.txt
+./exe/sysy_complier test/if_while.c ll/if_while.ll ast/if_while.txt
+./exe/sysy_complier test/if.c ll/if.ll ast/if.txt
+./exe/sysy_complier test/ir_test.c ll/ir_test.ll ast/ir_test.txt
+./exe/sysy_complier test/while_if.c ll/while_if.ll ast/while_if.txt
+./exe/sysy_complier test/while.c ll/while.ll ast/while.txt
+
+lli ll/array.ll
+lli ll/assign.ll
+lli ll/break.ll
+lli ll/continue.ll
+lli ll/float.ll
+lli ll/func.ll
+lli ll/if_while.ll
+lli ll/if.ll
+lli ll/ir_test.ll
+lli ll/while_if.ll
+lli ll/while.ll
