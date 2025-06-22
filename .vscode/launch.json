@@ -6,9 +6,9 @@
       "request": "launch",
       "program": "/home/zdw/sysy/exe/sysy_complier",
       "args": [
-        "/home/zdw/sysy/test/func.c",
-        "/home/zdw/sysy/ll/func.ll",
-        "/home/zdw/sysy/ast/func.txt"
+        "/home/zdw/sysy/test/array.c",
+        "/home/zdw/sysy/ll/array.ll",
+        "/home/zdw/sysy/ast/array.txt"
       ],
       "stopAtEntry": false,
       "cwd": "${fileDirname}",

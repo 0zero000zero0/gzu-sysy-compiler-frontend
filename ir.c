@@ -54,6 +54,13 @@ typedef struct Scope
     struct Scope *parent; // 父作用域指针
 } Scope;
 
+typedef struct LoopLabels
+{
+    char *continue_label;    // continue 跳转的目标
+    char *break_label;       // break 跳转的目标
+    struct LoopLabels *next; // 指向外层循环的标签 (形成链表/栈)
+} LoopLabels;
+
 typedef struct
 {
     int reg_counter;              // 当前寄存器使用个数
@@ -64,15 +71,19 @@ typedef struct
     Scope *current_scope;         // 当前作用域
     char *current_func_ret_type;  // 当前函数的返回类型
     int last_instr_is_terminator; // 上一个指令是否是终结指令 (如ret, br等)
+    LoopLabels *loop_label_stack; // 指向循环标签栈的栈顶
 } IRGenerator;
+
 static IRGenerator generator;
 
 static char *get_type_str(Node *type_node);
 static char *generate_lval_address(Node *node);
 static void emit(const char *format, ...);
 static void get_dimensions(Node *dim_node, int *dims, int *num_dims);
-static void generate_initializer_stores(Node *init_node, char *base_ptr, char *llvm_type, int *dims, int num_dims, int *flat_index);
+static void generate_initializer_stores(Node *init_node, char *base_ptr, char *llvm_type, int *dims, int num_dims,
+                                        int *flat_index);
 static void count_params(Node *n, int *count);
+
 // 符号表管理
 static void enter_scope()
 {
@@ -102,8 +113,7 @@ static void exit_scope()
     }
 }
 
-static void add_symbol_func(const char *name, const char *type,
-                            TypeNode *params)
+static void add_symbol_func(const char *name, const char *type, TypeNode *params)
 {
     Symbol *new_symbol = (Symbol *)malloc(sizeof(Symbol));
     new_symbol->name = strdup(name);
@@ -116,8 +126,7 @@ static void add_symbol_func(const char *name, const char *type,
     generator.current_scope->head = new_symbol;
 }
 
-static void add_symbol(const char *name, const char *type, const char *llvm_reg,
-                       int is_const)
+static void add_symbol(const char *name, const char *type, const char *llvm_reg, int is_const)
 {
     Symbol *new_symbol = (Symbol *)malloc(sizeof(Symbol));
     new_symbol->name = strdup(name);
@@ -347,30 +356,63 @@ static Value *generate_code(Node *node)
     }
 
     // --- Control Flow ---
-    if (strcmp(node->name, "IfStmt") == 0 || strcmp(node->name, "IfElseStmt") == 0 || strcmp(node->name, "WhileStmt") == 0)
+    if (strcmp(node->name, "IfStmt") == 0 || strcmp(node->name, "IfElseStmt") == 0 ||
+        strcmp(node->name, "WhileStmt") == 0)
     {
         char *then_label = NULL, *else_label = NULL, *merge_label = NULL, *cond_label = NULL, *body_label = NULL;
         Value *cond_val;
         int then_terminated, else_terminated; // 用于记录各分支是否已终结
-
         if (strcmp(node->name, "WhileStmt") == 0)
         {
-            cond_label = new_label("while_cond");
-            body_label = new_label("while_body");
-            merge_label = new_label("while_after");
+            // 1. 为当前循环创建标签
+            char *cond_label = new_label("while_cond");
+            char *body_label = new_label("while_body");
+            char *after_label = new_label("while_after");
 
+            // --- 关键：入栈操作 ---
+            // a. 创建新的标签节点
+            LoopLabels *new_loop = (LoopLabels *)malloc(sizeof(LoopLabels));
+            new_loop->continue_label = strdup(cond_label);
+            new_loop->break_label = strdup(after_label);
+            // b. 将新节点链接到旧的栈顶
+            new_loop->next = generator.loop_label_stack;
+            // c. 更新栈顶指针
+            generator.loop_label_stack = new_loop;
+
+            // 生成循环的进入和条件判断
             emit("\tbr label %%%s", cond_label);
             emit("%s:", cond_label);
-            cond_val = generate_code(node->children[0]);
-            emit("\tbr i1 %s, label %%%s, label %%%s", cond_val->reg, body_label, merge_label);
+            Value *cond_val = generate_code(node->children[0]);
+            emit("\tbr i1 %s, label %%%s, label %%%s", cond_val->reg, body_label, after_label);
+            freeValue(cond_val);
 
+            // 生成循环体
             emit("%s:", body_label);
-            generator.last_instr_is_terminator = 0; // 重置标志进入循环体
+            generator.last_instr_is_terminator = 0; // 进入循环体前重置
             freeValue(generate_code(node->children[1]));
+
+            // 如果循环体内部没有 break/continue/return, 则跳回循环条件
             if (!generator.last_instr_is_terminator)
             {
-                emit("\tbr label %%%s", cond_label); // 循环跳转
+                emit("\tbr label %%%s", cond_label);
             }
+
+            // 生成循环结束后的标签
+            emit("%s:", after_label);
+            generator.last_instr_is_terminator = 0; // 循环结束后，代码流继续
+
+            // --- 关键：出栈操作 ---
+            LoopLabels *top = generator.loop_label_stack;
+            generator.loop_label_stack = top->next; // 恢复到外层循环的栈
+            free(top->continue_label);
+            free(top->break_label);
+            free(top);
+
+            // 释放为这个循环创建的标签
+            free(cond_label);
+            free(body_label);
+            free(after_label);
+            return NULL;
         }
         else
         {
@@ -404,7 +446,7 @@ static Value *generate_code(Node *node)
                 {
                     emit("\tbr label %%%s", merge_label);
                 }
-                else_terminated = generator.last_instr_is_terminator;// 记录 else 分支的状态
+                else_terminated = generator.last_instr_is_terminator; // 记录 else 分支的状态
                 // merge 块只有在两个分支都未终结时才可能成为死代码，
                 // 但无论如何都需要生成，所以不需要复杂的逻辑判断。
                 // 关键是之后 last_instr_is_terminator 的状态。
@@ -442,6 +484,38 @@ static Value *generate_code(Node *node)
         free(body_label);
         return NULL;
     }
+    if (strcmp(node->name, "BreakStmt") == 0)
+    {
+        if (generator.loop_label_stack)
+        { // 检查是否在循环内
+            // 跳转到栈顶的 "break_label"
+            emit("\tbr label %%%s", generator.loop_label_stack->break_label);
+            generator.last_instr_is_terminator = 1;
+        }
+        else
+        {
+            fprintf(stderr, "FATAL: 'break' statement not in a loop.\n");
+            exit(1);
+        }
+        return NULL;
+    }
+
+    if (strcmp(node->name, "ContinueStmt") == 0)
+    {
+        if (generator.loop_label_stack)
+        { // 检查是否在循环内
+            // 跳转到栈顶的 "continue_label"
+            emit("\tbr label %%%s", generator.loop_label_stack->continue_label);
+            generator.last_instr_is_terminator = 1;
+        }
+        else
+        {
+            fprintf(stderr, "FATAL: 'continue' statement not in a loop.\n");
+            exit(1);
+        }
+        return NULL;
+    }
+
     // --- Expressions ---
     if (strcmp(node->name, "BinaryOp") == 0)
     {
@@ -732,6 +806,7 @@ static void count_params(Node *n, int *count)
         count_params(n->children[1], count);
     }
 }
+
 // generate_lval_address: 为左值(LVal)生成地址
 static char *get_lval_type(Node *node)
 {
@@ -778,8 +853,8 @@ static char *generate_lval_address(Node *node)
         char *aggregate_type = get_lval_type(node->children[0]);
 
         char *res_ptr_reg = new_reg();
-        emit("\t%s = getelementptr inbounds %s, %s* %s, i32 0, %s %s",
-             res_ptr_reg, aggregate_type, aggregate_type, base_ptr_reg, index_val->type, index_val->reg);
+        emit("\t%s = getelementptr inbounds %s, %s* %s, i32 0, %s %s", res_ptr_reg, aggregate_type, aggregate_type,
+             base_ptr_reg, index_val->type, index_val->reg);
 
         free(aggregate_type);
         free(base_ptr_reg);
@@ -790,6 +865,7 @@ static char *generate_lval_address(Node *node)
     fprintf(stderr, "FATAL: generate_lval_address called with unexpected node type '%s'.\n", node->name);
     exit(1);
 }
+
 static char *build_llvm_type_str(Node *dim_node, const char *base_type)
 {
     if (!dim_node || dim_node->num_children == 0)
@@ -815,6 +891,7 @@ static char *build_llvm_type_str(Node *dim_node, const char *base_type)
 }
 
 // process_var_def_list: 处理变量定义列表
+
 static void process_var_def_list(Node *n, const char *base_type)
 {
     if (!n || n->num_children == 0)
@@ -838,17 +915,18 @@ static void process_var_def_list(Node *n, const char *base_type)
     {
         Node *init_val_node = var_def_node->children[2];
         if (dim_list_node->num_children > 0)
-        {
+        { // 数组初始化
             int dims[10] = {0}, num_dims = 0;
             get_dimensions(dim_list_node, dims, &num_dims);
             int flat_index = 0;
-            if (init_val_node->children[0] && init_val_node->children[0]->num_children > 0)
-            {
-                generate_initializer_stores(init_val_node->children[0], ptr_reg, llvm_type, dims, num_dims, &flat_index);
-            }
+
+            // --- 关键修正 ---
+            // 直接将 InitVal 节点 (其 name 可能是 InitVal_Aggregate) 传递下去
+            // generate_initializer_stores 函数内部知道如何处理它
+            generate_initializer_stores(init_val_node, ptr_reg, llvm_type, dims, num_dims, &flat_index);
         }
         else
-        {
+        { // 简单变量初始化
             Value *init_val = generate_code(init_val_node);
             char *final_init_reg = init_val->reg;
 
@@ -895,11 +973,15 @@ static void get_dimensions(Node *dim_node, int *dims, int *num_dims)
 }
 
 // generate_initializer_stores: 生成初始化存储指令
-static void generate_initializer_stores(Node *init_node, char *base_ptr, char *llvm_type, int *dims, int num_dims, int *flat_index)
+
+static void generate_initializer_stores(Node *init_node, char *base_ptr, char *llvm_type, int *dims, int num_dims,
+                                        int *flat_index)
 {
+    // 如果节点为空，直接返回
     if (!init_node)
         return;
 
+    // 基准情形: 节点是一个最终的数值表达式
     if (strcmp(init_node->name, "ConstExp") == 0 || strcmp(init_node->name, "Exp") == 0)
     {
         Value *val = generate_code(init_node);
@@ -941,16 +1023,12 @@ static void generate_initializer_stores(Node *init_node, char *base_ptr, char *l
         free(element_ptr);
         (*flat_index)++;
     }
-    else if (strcmp(init_node->name, "InitVal_Aggregate") == 0)
+    // 递归情形: 节点是任何类型的包装器或列表
+    else
     {
-        generate_initializer_stores(init_node->children[0], base_ptr, llvm_type, dims, num_dims, flat_index);
-    }
-    else if (strcmp(init_node->name, "ConstInitVal_List") == 0 || strcmp(init_node->name, "InitVal_List") == 0)
-    {
-        generate_initializer_stores(init_node->children[0], base_ptr, llvm_type, dims, num_dims, flat_index);
-        if (init_node->num_children > 1)
+        for (int i = 0; i < init_node->num_children; i++)
         {
-            generate_initializer_stores(init_node->children[1], base_ptr, llvm_type, dims, num_dims, flat_index);
+            generate_initializer_stores(init_node->children[i], base_ptr, llvm_type, dims, num_dims, flat_index);
         }
     }
 }
@@ -1026,11 +1104,11 @@ static void init_ir_generator()
     generator.label_counter = 0;
     generator.code_size = 0;
     generator.code_capacity = 1024;
-    generator.code_buffer =
-        (char **)malloc(generator.code_capacity * sizeof(char *));
+    generator.code_buffer = (char **)malloc(generator.code_capacity * sizeof(char *));
     generator.current_scope = NULL;
     generator.current_func_ret_type = NULL;
     generator.last_instr_is_terminator = 0;
+    generator.loop_label_stack = NULL;
     enter_scope();
 }
 
@@ -1053,8 +1131,7 @@ static void emit(const char *format, ...)
     {
         // 扩容
         generator.code_capacity *= 2;
-        generator.code_buffer = (char **)realloc(
-            generator.code_buffer, generator.code_capacity * sizeof(char *));
+        generator.code_buffer = (char **)realloc(generator.code_buffer, generator.code_capacity * sizeof(char *));
     }
     char temp_buf[1024];
     va_list args;
