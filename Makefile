@@ -17,7 +17,7 @@ test: build
 			echo "Complier failed for $$file"; \
 			continue; \
 		fi; \
-		-lli "$(LL_DIR)/$$noext.ll"; \
+		lli "$(LL_DIR)/$$noext.ll"; \
 		echo "Test for $$file finished with exit code: $$?."; \
 		echo ""; \
 	done
