@@ -19,7 +19,7 @@
             |--<AssignStmt>
                |--<LVal>
                   |--a
-               |--1.732
+               |--2.0
             |--<BlockItemList>
                |--<AssignStmt>
                   |--<LVal>

@@ -48,7 +48,7 @@ static char *generate_lval_address(Node *node);
 static void emit(const char *format, ...);
 static void get_dimensions(Node *dim_node, int *dims, int *num_dims);
 static void generate_initializer_stores(Node *init_node, char *base_ptr, char *llvm_type, int *dims, int num_dims, int *flat_index);
-
+static void count_params(Node *n, int *count);
 // 符号表管理
 static void enter_scope()
 {
@@ -217,16 +217,29 @@ static char *generate_code(Node *node)
         enter_scope();
         int param_count = 0;
         if (params_opt_node->num_children > 0)
+        {
+            // 1. 先预扫描，只为获取参数数量
+            count_params(params_opt_node->children[0], &param_count);
+        }
+
+        // 2. 根据参数数量，在生成任何局部寄存器之前，设置好计数器
+        generator.reg_counter = param_count - 1;
+
+        param_count = 0; // 重置 count 给 process_formal_params 使用
+        if (params_opt_node->num_children > 0)
+        {
+            // 3. 现在才正式处理参数，此时 new_reg() 会从正确的编号开始
             process_formal_params(params_opt_node->children[0], &param_count);
+        }
         generate_code(block_node);
         exit_scope();
 
         if (!generator.last_instr_is_terminator)
         {
             if (strcmp(return_type_str, "void") == 0)
-                emit("  ret void");
+                emit("\tret void");
             else
-                emit("  ret %s 0", return_type_str);
+                emit("\tret %s 0", return_type_str);
         }
         emit("}");
         return NULL;
@@ -262,7 +275,7 @@ static char *generate_code(Node *node)
             }
         }
 
-        emit("  store %s %s, %s* %s", element_type, val_reg, element_type, ptr_reg);
+        emit("\tstore %s %s, %s* %s", element_type, val_reg, element_type, ptr_reg);
         free(val_reg);
         free(ptr_reg);
         return NULL;
@@ -273,12 +286,12 @@ static char *generate_code(Node *node)
         if (exp_opt_node->num_children > 0)
         {
             char *ret_val_reg = generate_code(exp_opt_node->children[0]);
-            emit("  ret %s %s", generator.current_func_ret_type, ret_val_reg);
+            emit("\tret %s %s", generator.current_func_ret_type, ret_val_reg);
             free(ret_val_reg);
         }
         else
         {
-            emit("  ret void");
+            emit("\tret void");
         }
         generator.last_instr_is_terminator = 1;
         return NULL;
@@ -286,31 +299,31 @@ static char *generate_code(Node *node)
     if (strcmp(node->name, "IfStmt") == 0 || strcmp(node->name, "IfElseStmt") == 0)
     {
         char *cond_reg = generate_code(node->children[0]);
-        char *i1_cond_reg = new_reg();
-        emit("  %s = icmp ne i32 %s, 0", i1_cond_reg, cond_reg);
-        free(cond_reg);
+        // char *i1_cond_reg = new_reg();
+        // emit("\t%s = icmp ne i32 %s, 0", i1_cond_reg, cond_reg);
         char *then_label = new_label("if_then"), *else_label = new_label("if_else"), *merge_label = new_label("if_merge");
         if (strcmp(node->name, "IfElseStmt") == 0)
         {
-            emit("  br i1 %s, label %%%s, label %%%s", i1_cond_reg, then_label, else_label);
+            emit("\tbr i1 %s, label %%%s, label %%%s", cond_reg, then_label, else_label);
             emit("%s:", then_label);
             generate_code(node->children[1]);
             if (!generator.last_instr_is_terminator)
-                emit("  br label %%%s", merge_label);
+            emit("\tbr label %%%s", merge_label);
             emit("%s:", else_label);
             generate_code(node->children[2]);
         }
         else
         {
-            emit("  br i1 %s, label %%%s, label %%%s", i1_cond_reg, then_label, merge_label);
+            emit("\tbr i1 %s, label %%%s, label %%%s", cond_reg, then_label, merge_label);
             emit("%s:", then_label);
             generate_code(node->children[1]);
         }
         if (!generator.last_instr_is_terminator)
-            emit("  br label %%%s", merge_label);
+        emit("\tbr label %%%s", merge_label);
         emit("%s:", merge_label);
         generator.last_instr_is_terminator = 0;
-        free(i1_cond_reg);
+        free(cond_reg);
+        // free(i1_cond_reg);
         free(then_label);
         free(else_label);
         free(merge_label);
@@ -319,20 +332,20 @@ static char *generate_code(Node *node)
     if (strcmp(node->name, "WhileStmt") == 0)
     {
         char *cond_label = new_label("while_cond"), *body_label = new_label("while_body"), *after_label = new_label("while_after");
-        emit("  br label %%%s", cond_label);
+        emit("\tbr label %%%s", cond_label);
         emit("%s:", cond_label);
         char *cond_reg = generate_code(node->children[0]);
-        char *i1_cond_reg = new_reg();
-        emit("  %s = icmp ne i32 %s, 0", i1_cond_reg, cond_reg);
-        free(cond_reg);
-        emit("  br i1 %s, label %%%s, label %%%s", i1_cond_reg, body_label, after_label);
+        // char *i1_cond_reg = new_reg();
+        // emit("\t%s = icmp ne i32 %s, 0", i1_cond_reg, cond_reg);
+        emit("\tbr i1 %s, label %%%s, label %%%s", cond_reg, body_label, after_label);
         emit("%s:", body_label);
         generate_code(node->children[1]);
         if (!generator.last_instr_is_terminator)
-            emit("  br label %%%s", cond_label);
+        emit("\tbr label %%%s", cond_label);
         emit("%s:", after_label);
         generator.last_instr_is_terminator = 0;
-        free(i1_cond_reg);
+        free(cond_reg);
+        // free(i1_cond_reg);
         free(cond_label);
         free(body_label);
         free(after_label);
@@ -383,12 +396,12 @@ static char *generate_code(Node *node)
         if (is_cmp)
         {
             // 为比较指令使用正确的格式，插入op_code
-            emit("  %s = icmp %s %s %s, %s", res_reg, op_code, type, left_reg, right_reg);
+            emit("\t%s = icmp %s %s %s, %s", res_reg, op_code, type, left_reg, right_reg);
         }
         else
         {
             // 为算术指令使用原来的格式
-            emit("  %s = %s %s %s, %s", res_reg, op_code, type, left_reg, right_reg);
+            emit("\t%s = %s %s %s, %s", res_reg, op_code, type, left_reg, right_reg);
         }
         free(left_reg);
         free(right_reg);
@@ -425,13 +438,13 @@ static char *generate_code(Node *node)
         }
         if (strcmp(func_sym->type, "void") == 0)
         {
-            emit("  call void @%s(%s)", func_name, args_final_str);
+            emit("\tcall void @%s(%s)", func_name, args_final_str);
             return NULL;
         }
         else
         {
             char *res_reg = new_reg();
-            emit("  %s = call %s @%s(%s)", res_reg, func_sym->type, func_name, args_final_str);
+            emit("\t%s = call %s @%s(%s)", res_reg, func_sym->type, func_name, args_final_str);
             return res_reg;
         }
     }
@@ -447,16 +460,16 @@ static char *generate_code(Node *node)
         else if (strcmp(op_str, "-") == 0)
         {
             char *res_reg = new_reg();
-            emit("  %s = sub i32 0, %s", res_reg, operand_reg);
+            emit("\t%s = sub i32 0, %s", res_reg, operand_reg);
             free(operand_reg);
             return res_reg;
         }
         else if (strcmp(op_str, "!") == 0)
         {
             char *cmp_reg = new_reg();
-            emit("  %s = icmp eq i32 %s, 0", cmp_reg, operand_reg);
+            emit("\t%s = icmp eq i32 %s, 0", cmp_reg, operand_reg);
             char *res_reg = new_reg();
-            emit("  %s = zext i1 %s to i32", res_reg, cmp_reg);
+            emit("\t%s = zext i1 %s to i32", res_reg, cmp_reg);
             free(operand_reg);
             free(cmp_reg);
             return res_reg;
@@ -465,7 +478,7 @@ static char *generate_code(Node *node)
     // 数组初始化，安全处理以防崩溃
     if (strcmp(node->name, "InitVal_Aggregate") == 0)
     {
-        emit("  ; aggregate initializer not fully implemented");
+        emit("\t; aggregate initializer not fully implemented");
         return strdup("0"); // 返回一个哑元值
     }
 
@@ -475,7 +488,7 @@ static char *generate_code(Node *node)
         char *ptr_reg = generate_lval_address(node);
         char *val_reg = new_reg();
         char element_type[64] = "i32"; // 简化
-        emit("  %s = load %s, %s* %s", val_reg, element_type, element_type, ptr_reg);
+        emit("\t%s = load %s, %s* %s", val_reg, element_type, element_type, ptr_reg);
         free(ptr_reg);
         return val_reg;
     }
@@ -486,9 +499,21 @@ static char *generate_code(Node *node)
         if (sym && !sym->is_func)
         { // 这是一个已声明的变量
             char *val_reg = new_reg();
-            emit("  %s = load %s, %s* %s", val_reg, sym->type, sym->type, sym->llvm_reg);
+            emit("\t%s = load %s, %s* %s", val_reg, sym->type, sym->type, sym->llvm_reg);
             return val_reg;
         }
+
+        // 如果不是符号表里的变量，那它就是一个字面量
+        // 判断它是否是浮点数字面量 (一个简单的启发式方法)
+        if (strchr(node->name, '.') != NULL || strchr(node->name, 'e') != NULL || strchr(node->name, 'E') != NULL)
+        {
+            // 这是一个浮点数，转换为LLVM接受的十六进制格式
+            double float_val = atof(node->name);
+            char hex_float_buf[128];
+            sprintf(hex_float_buf, "%f", float_val);
+            return strdup(hex_float_buf);
+        }
+
         return strdup(node->name); // 否则是数字字面量或函数名
     }
 
@@ -513,6 +538,17 @@ static char *get_type_str(Node *type_node)
     return "void";
 }
 
+// ir.c: 在 process_formal_params 附近添加这个新函数
+static void count_params(Node *n, int *count)
+{
+    if (!n || n->num_children == 0)
+        return;
+    (*count)++;
+    if (n->num_children > 1)
+    {
+        count_params(n->children[1], count);
+    }
+}
 // generate_lval_address: 为左值(LVal)生成地址
 static char *generate_lval_address(Node *node)
 {
@@ -615,7 +651,7 @@ static void process_var_def_list(Node *n, const char *base_type)
     // 无论是部分初始化还是不初始化，都先全部置零
     if (dim_list_node->num_children > 0)
     { // 仅对数组进行
-        emit("  store %s zeroinitializer, %s* %s", llvm_type, llvm_type, ptr_reg);
+        emit("\tstore %s zeroinitializer, %s* %s", llvm_type, llvm_type, ptr_reg);
     }
 
     if (strcmp(var_def_node->name, "VarDef_Init") == 0)
@@ -638,7 +674,7 @@ static void process_var_def_list(Node *n, const char *base_type)
         else
         { // 简单变量初始化
             char *init_val = generate_code(init_val_node);
-            emit("  store %s %s, %s* %s", base_type, init_val, base_type, ptr_reg);
+            emit("\tstore %s %s, %s* %s", base_type, init_val, base_type, ptr_reg);
             free(init_val);
         }
     }
@@ -705,8 +741,8 @@ static void generate_initializer_stores(Node *init_node, char *base_ptr, char *l
         if (strchr(clean_element_type, ']'))
             *strchr(clean_element_type, ']') = '\0';
 
-        emit("  %s = getelementptr inbounds %s, %s* %s, %s", element_ptr, llvm_type, llvm_type, base_ptr, gep_indices);
-        emit("  store %s %s, %s* %s", clean_element_type, val_reg, clean_element_type, element_ptr);
+        emit("\t%s = getelementptr inbounds %s, %s* %s, %s", element_ptr, llvm_type, llvm_type, base_ptr, gep_indices);
+        emit("\tstore %s %s, %s* %s", clean_element_type, val_reg, clean_element_type, element_ptr);
 
         free(val_reg);
         free(element_ptr);
@@ -765,8 +801,8 @@ static void process_formal_params(Node *n, int *count)
     char param_reg[16];
     snprintf(param_reg, sizeof(param_reg), "%%%d", (*count)++);
     char *ptr_reg = new_reg();
-    emit("  %s = alloca %s", ptr_reg, param_type);
-    emit("  store %s %s, %s* %s", param_type, param_reg, param_type, ptr_reg);
+    emit("\t%s = alloca %s", ptr_reg, param_type);
+    emit("\tstore %s %s, %s* %s", param_type, param_reg, param_type, ptr_reg);
     add_symbol(param_name, param_type, ptr_reg, 0);
     free(ptr_reg);
     if (n->num_children > 1)

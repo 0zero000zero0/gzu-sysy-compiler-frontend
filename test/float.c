@@ -1,7 +1,7 @@
 int main()
 {
 	float a, b;
-	a = 1.732;
+	a = 2.0;
 	b = a * 2 - 3;
 	if (a > b && b > 0)
 	{
