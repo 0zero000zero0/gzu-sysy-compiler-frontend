@@ -19,7 +19,7 @@ typedef struct Value
     char *type;
 } Value;
 
-static Value *newValue(const char *reg, const char *type)
+static Value *new_value(const char *reg, const char *type)
 {
     Value *v = (Value *)malloc(sizeof(Value));
     v->reg = strdup(reg);
@@ -536,7 +536,7 @@ static Value *generate_code(Node *node)
 
             freeValue(left);
             freeValue(right);
-            return newValue(res_reg, "i1"); // 逻辑运算的结果也是 i1
+            return new_value(res_reg, "i1"); // 逻辑运算的结果也是 i1
         }
 
         char op_code_buf[16], *result_type = "i32", *op_prefix = "";
@@ -621,7 +621,7 @@ static Value *generate_code(Node *node)
             free(right_reg);
         freeValue(left);
         freeValue(right);
-        return newValue(res_reg, result_type);
+        return new_value(res_reg, result_type);
     }
 
     if (strcmp(node->name, "UnaryOp") == 0)
@@ -637,7 +637,7 @@ static Value *generate_code(Node *node)
                 emit("\t%s = fsub float 0.0, %s", res_reg, operand->reg);
             else
                 emit("\t%s = sub i32 0, %s", res_reg, operand->reg);
-            Value *res_val = newValue(res_reg, operand->type);
+            Value *res_val = new_value(res_reg, operand->type);
             freeValue(operand);
             return res_val;
         }
@@ -652,7 +652,7 @@ static Value *generate_code(Node *node)
             emit("\t%s = zext i1 %s to i32", res_reg, cmp_reg);
             free(cmp_reg);
             freeValue(operand);
-            return newValue(res_reg, "i32");
+            return new_value(res_reg, "i32");
         }
     }
 
@@ -724,7 +724,7 @@ static Value *generate_code(Node *node)
             char *res_reg = new_reg();
             emit("\t%s = call %s @%s(%s)", res_reg, func_sym->type, func_name, args_str);
             // 创建一个新的 Value* 来代表函数调用的结果
-            return_value = newValue(res_reg, func_sym->type);
+            return_value = new_value(res_reg, func_sym->type);
         }
 
         // 5. 清理为参数动态分配的内存
@@ -738,7 +738,7 @@ static Value *generate_code(Node *node)
     }
 
     if (strcmp(node->name, "InitVal_Aggregate") == 0)
-        return newValue("0", "i32");
+        return new_value("0", "i32");
 
     // --- Primitives (LVal, Literals) ---
     if (strcmp(node->name, "ArrayAccess") == 0 || (strcmp(node->name, "LVal") == 0 && node->num_children == 1))
@@ -757,7 +757,7 @@ static Value *generate_code(Node *node)
         char *val_reg = new_reg();
         emit("\t%s = load %s, %s* %s", val_reg, element_type, element_type, ptr_reg);
         free(ptr_reg);
-        return newValue(val_reg, element_type);
+        return new_value(val_reg, element_type);
     }
 
     if (node->num_children == 0)
@@ -767,16 +767,16 @@ static Value *generate_code(Node *node)
         {
             char *val_reg = new_reg();
             emit("\t%s = load %s, %s* %s", val_reg, sym->type, sym->type, sym->llvm_reg);
-            return newValue(val_reg, sym->type);
+            return new_value(val_reg, sym->type);
         }
         if (strchr(node->name, '.') || strchr(node->name, 'e') || strchr(node->name, 'E'))
         {
             double float_val = atof(node->name);
-            char hex_float_buf[128];
+            char hex_float_buf[64];
             sprintf(hex_float_buf, "%f", float_val);
-            return newValue(hex_float_buf, "float");
+            return new_value(hex_float_buf, "float");
         }
-        return newValue(node->name, "i32");
+        return new_value(node->name, "i32");
     }
 
     if (node->num_children == 1)
