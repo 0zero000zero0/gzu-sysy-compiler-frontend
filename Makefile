@@ -9,12 +9,18 @@ LL_FILES := $(patsubst $(TEST_SRC_DIR)/%.c,$(LL_DIR)/%.ll,$(TEST_C_FILES))
 
 test: build
 	@for file in $(TEST_C_FILES); do \
-    	# echo "Compiling $$file..."; \
-        base="$${file##*/}"; \
-        noext="$${base%.*}"; \
-        ./exe/sysy_complier "$$file" "$(LL_DIR)/$$noext.ll" "$(CST_DIR)/$$noext.txt"; \
-		lli "$(LL_DIR)/$$noext.ll"; \
-    done
+		echo "--- Testing $$file ---"; \
+		base="$${file##*/}"; \
+		noext="$${base%.*}"; \
+		./exe/sysy_complier "$$file" "$(LL_DIR)/$$noext.ll" "$(CST_DIR)/$$noext.txt"; \
+		if [ $$? -ne 0 ]; then \
+			echo "Complier failed for $$file"; \
+			continue; \
+		fi; \
+		-lli "$(LL_DIR)/$$noext.ll"; \
+		echo "Test for $$file finished with exit code: $$?."; \
+		echo ""; \
+	done
 
 build: flex bison
 	gcc -g node.c sysy.tab.c lex.yy.c ir.c -o exe/sysy_complier
