@@ -43,8 +43,8 @@ typedef struct Symbol
     char *type;     // 变量类型 或 函数返回类型
     char *llvm_reg; // 变量在栈上的地址指针
     int is_const;
-    int is_func;      // 新增：是否是函数
-    TypeNode *params; // 新增：函数参数类型列表
+    int is_func;      // 是否是函数
+    TypeNode *params; // 函数参数类型列表
     struct Symbol *next;
 } Symbol;
 
@@ -187,7 +187,6 @@ static Value *generate_code(Node *node)
     if (!node || (node->name == NULL && node->num_children == 0))
         return NULL;
 
-    // --- Structural & Declarative Nodes (return NULL) ---
     if (strcmp(node->name, "CompUnit") == 0)
     {
         if (node->num_children > 0)
@@ -242,7 +241,7 @@ static Value *generate_code(Node *node)
 
         generator.reg_counter = param_count - 1;
 
-        param_count = 0; // Reset for actual processing
+        param_count = 0; // 重置以进行实际处理。
         if (params_opt_node->num_children > 0)
             process_formal_params(params_opt_node->children[0], &param_count);
 
@@ -357,7 +356,7 @@ static Value *generate_code(Node *node)
         if (strcmp(node->name, "WhileStmt") == 0)
         {
             cond_label = new_label("while_cond");
-            body_label = new_label("while_body"); // 使用更清晰的标签名
+            body_label = new_label("while_body");
             merge_label = new_label("while_after");
 
             emit("\tbr label %%%s", cond_label);
@@ -373,8 +372,9 @@ static Value *generate_code(Node *node)
                 emit("\tbr label %%%s", cond_label); // 循环跳转
             }
         }
-        else // 处理 IfStmt 和 IfElseStmt
+        else
         {
+            // 处理 IfStmt 和 IfElseStmt
             cond_val = generate_code(node->children[0]);
             then_label = new_label("if_then");
             merge_label = new_label("if_merge");
@@ -404,7 +404,7 @@ static Value *generate_code(Node *node)
                 {
                     emit("\tbr label %%%s", merge_label);
                 }
-                else_terminated = generator.last_instr_is_terminator; // 记录 else 分支的状态
+                else_terminated = generator.last_instr_is_terminator;// 记录 else 分支的状态
                 // merge 块只有在两个分支都未终结时才可能成为死代码，
                 // 但无论如何都需要生成，所以不需要复杂的逻辑判断。
                 // 关键是之后 last_instr_is_terminator 的状态。
@@ -429,10 +429,6 @@ static Value *generate_code(Node *node)
             }
         }
 
-        // 【关键】移除错误的共享跳转逻辑
-        // if (!generator.last_instr_is_terminator)
-        //     emit("\tbr label %%%s", merge_label);
-
         emit("%s:", merge_label);
         // last_instr_is_terminator 的状态已经在 if/else 内部逻辑中正确设置
         // 如果是 if-else 且两个分支都 return 了, 这里才为 true, 否则都为 false。
@@ -455,9 +451,7 @@ static Value *generate_code(Node *node)
         if (strcmp(op_str, "&&") == 0 || strcmp(op_str, "||") == 0)
         {
             // 逻辑运算的操作数必须是 i1 类型
-            // 这里我们假设它们已经是 i1，如果不是，需要先转换
-            // 从你的 float.ll 来看，它们已经是 i1 了
-
+            // TODO: 假设它们已经是 i1，如果不是，需要先转换
             char *op_code = (strcmp(op_str, "&&") == 0) ? "and" : "or";
             char *res_reg = new_reg();
 
@@ -588,18 +582,16 @@ static Value *generate_code(Node *node)
 
     if (strcmp(node->name, "FuncCall") == 0)
     {
-        // 1. 查找函数信息
         char *func_name = node->children[0]->name;
         Symbol *func_sym = lookup_symbol(func_name);
 
-        // 健壮性检查：如果函数未定义，则报错退出
         if (!func_sym || !func_sym->is_func)
         {
             fprintf(stderr, "FATAL: Call to undefined or non-function '%s'.\n", func_name);
             exit(1);
         }
 
-        // 2. 处理实际参数
+        // 处理实际参数
         Value *arg_vals[32]; // 假设最多32个参数
         int arg_count = 0;
         Node *params_node = node->children[1]; // FuncRParams 节点
@@ -629,7 +621,7 @@ static Value *generate_code(Node *node)
         // 3. 构建LLVM call指令的参数字符串
         char args_str[2048] = "";
         // 注意：这里的实现未做详细的实参-形参类型检查与隐式转换，
-        // 仅使用生成代码时的类型。一个更完备的编译器需要在这里进行类型匹配。
+        // 仅使用生成代码时的类型
         for (int i = 0; i < arg_count; i++)
         {
             char temp_buf[128];
@@ -668,7 +660,6 @@ static Value *generate_code(Node *node)
         // 返回函数调用的结果（对于 void 函数是 NULL，否则是一个新的 Value*）
         return return_value;
     }
-
 
     if (strcmp(node->name, "InitVal_Aggregate") == 0)
         return newValue("0", "i32");
@@ -776,7 +767,6 @@ static char *generate_lval_address(Node *node)
         Symbol *sym = lookup_symbol(node->children[0]->name);
         if (sym)
             return strdup(sym->llvm_reg);
-        // ... error handling ...
     }
 
     if (strcmp(node->name, "ArrayAccess") == 0)
