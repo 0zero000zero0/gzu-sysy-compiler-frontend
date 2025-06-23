@@ -26,7 +26,7 @@ test: build
 	done
 
 build: flex bison
-	gcc -g node.c sysy.tab.c lex.yy.c ir.c -o exe/sysy_complier
+	gcc -g node.c sysy.tab.c lex.yy.c helpers.c symbol.c value.c  irgen.c -o exe/sysy_complier
 flex: sysy.l
 	flex -o lex.yy.c sysy.l
 bison: sysy.y

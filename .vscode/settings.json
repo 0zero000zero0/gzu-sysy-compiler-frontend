@@ -18,7 +18,17 @@
         "algorithm": "c",
         "ratio": "c",
         "ir_generator.h": "c",
-        "sysy.tab.h": "c"
+        "sysy.tab.h": "c",
+        "symbol.h": "c",
+        "ir.h": "c",
+        "array": "c",
+        "string_view": "c",
+        "initializer_list": "c",
+        "ranges": "c",
+        "span": "c",
+        "utility": "c",
+        "format": "c",
+        "helpers.h": "c"
     },
     "makefile.launchConfigurations": [
         {

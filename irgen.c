@@ -1,196 +1,64 @@
+/**
+ * @file irgen.c
+ * @brief  递归遍历 AST, 生成 LLVM IR 文本缓冲区
+ *
+ * 仅本文件持有状态机 (IRg) 与所有 “generate_*” 递归函数。
+ */
+
+#include "helpers.h"
 #include "ir.h"
-#include "sysy.tab.h"
+#include "node.h"
+#include "symbol.h"
+#include "sysy.tab.h" /* token 宏 & AST Node 定义 */
+#include "value.h"
 #include <stdarg.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-// 用于表示函数参数类型列表的节点
-typedef struct TypeNode
-{
-    char *type;
-    struct TypeNode *next;
-} TypeNode;
-
-typedef struct Value
-{
-    char *reg;
-    char *type;
-} Value;
-
-static Value *new_value(const char *reg, const char *type)
-{
-    Value *v = (Value *)malloc(sizeof(Value));
-    v->reg = strdup(reg);
-    v->type = strdup(type);
-    return v;
-}
-
-static void freeValue(Value *v)
-{
-    if (v)
-    {
-        free(v->reg);
-        free(v->type);
-        free(v);
-    }
-}
-
-typedef struct Symbol
-{
-    char *name;
-    char *type;     // 变量类型 或 函数返回类型
-    char *llvm_reg; // 变量在栈上的地址指针
-    int is_const;
-    int is_func;      // 是否是函数
-    TypeNode *params; // 函数参数类型列表
-    struct Symbol *next;
-} Symbol;
-
-typedef struct Scope
-{
-    Symbol *head;         // 作用域内符号链表头
-    struct Scope *parent; // 父作用域指针
-} Scope;
-
-typedef struct LoopLabels
-{
-    char *continue_label;    // continue 跳转的目标
-    char *break_label;       // break 跳转的目标
-    struct LoopLabels *next; // 指向外层循环的标签 (形成链表/栈)
-} LoopLabels;
-
 typedef struct
 {
-    int reg_counter;              // 当前寄存器使用个数
-    int label_counter;            // 当前标签使用个数
-    char **code_buffer;           // IR代码缓冲区
-    int code_size;                // 当前代码行数
-    int code_capacity;            // 缓冲区容量
+    int reg_cnt;                  // 当前寄存器使用个数
+    int label_cnt;                // 当前标签使用个数
+    char **buf;                   // IR代码缓冲区
+    int size;                     // 当前代码行数
+    int cap;                      // 缓冲区容量
     Scope *current_scope;         // 当前作用域
-    char *current_func_ret_type;  // 当前函数的返回类型
-    int last_instr_is_terminator; // 上一个指令是否是终结指令 (如ret, br等)
+    char *cur_ret_type;           // 当前函数的返回类型
+    int last_is_terms;            // 上一个指令是否是终结指令 (如ret, br等)
     LoopLabels *loop_label_stack; // 指向循环标签栈的栈顶
-} IRGenerator;
+} IRGen;
 
-static IRGenerator generator;
-
-static char *get_type_str(Node *type_node);
-static char *generate_lval_address(Node *node);
-static void emit(const char *format, ...);
-static void get_dimensions(Node *dim_node, int *dims, int *num_dims);
-static void generate_initializer_stores(Node *init_node, char *base_ptr, char *llvm_type, int *dims, int num_dims,
-                                        int *flat_index);
-static void count_params(Node *n, int *count);
-static int is_scalar_init(Node *n);
-
-// 符号表管理
-static void enter_scope()
-{
-    Scope *new_scope = (Scope *)malloc(sizeof(Scope));
-    new_scope->head = NULL;
-    new_scope->parent = generator.current_scope;
-    generator.current_scope = new_scope;
-}
-
-static void exit_scope()
-{
-    if (generator.current_scope)
-    {
-        Scope *parent_scope = generator.current_scope->parent;
-        Symbol *current = generator.current_scope->head;
-        while (current)
-        {
-            Symbol *next = current->next;
-            free(current->name);
-            free(current->type);
-            free(current->llvm_reg);
-            free(current);
-            current = next;
-        }
-        free(generator.current_scope);
-        generator.current_scope = parent_scope;
-    }
-}
-
-static void add_symbol_func(const char *name, const char *type, TypeNode *params)
-{
-    Symbol *new_symbol = (Symbol *)malloc(sizeof(Symbol));
-    new_symbol->name = strdup(name);
-    new_symbol->type = strdup(type);
-    new_symbol->llvm_reg = NULL; // 函数没有栈地址
-    new_symbol->is_const = 0;
-    new_symbol->is_func = 1;     // 标记为函数
-    new_symbol->params = params; // 挂载参数类型列表
-    new_symbol->next = generator.current_scope->head;
-    generator.current_scope->head = new_symbol;
-}
-
-static void add_symbol(const char *name, const char *type, const char *llvm_reg, int is_const)
-{
-    Symbol *new_symbol = (Symbol *)malloc(sizeof(Symbol));
-    new_symbol->name = strdup(name);
-    new_symbol->type = strdup(type);
-    new_symbol->llvm_reg = strdup(llvm_reg);
-    new_symbol->is_const = is_const;
-    new_symbol->is_func = 0; // 标记为变量
-    new_symbol->params = NULL;
-    new_symbol->next = generator.current_scope->head;
-    generator.current_scope->head = new_symbol;
-}
-
-static Symbol *lookup_symbol(const char *name)
-{
-    Scope *scope = generator.current_scope;
-    while (scope)
-    {
-        Symbol *sym = scope->head;
-        while (sym)
-        {
-            if (strcmp(sym->name, name) == 0)
-            {
-                return sym;
-            }
-            sym = sym->next;
-        }
-        scope = scope->parent;
-    }
-    return NULL;
-}
+static IRGen g = {0};
 
 static char *new_reg()
 {
     static char buf[16];
-    sprintf(buf, "%%%d", ++generator.reg_counter);
+    sprintf(buf, "%%%d", ++g.reg_cnt);
     return strdup(buf);
 }
 
 static char *new_label(const char *prefix)
 {
     static char buf[32];
-    sprintf(buf, "%s%d", prefix, ++generator.label_counter);
+    sprintf(buf, "%s%d", prefix, ++g.label_cnt);
     return strdup(buf);
 }
-
-static char *get_btype(Node *btype_node)
-{
-    if (btype_node && btype_node->num_children > 0)
-    {
-        Node *type_token = btype_node->children[0];
-        if (strcmp(type_token->name, "int") == 0)
-            return "i32";
-        if (strcmp(type_token->name, "float") == 0)
-            return "float";
-    }
-    return "void";
-}
-
-static void process_param_types(Node *n, TypeNode **head_ref);
-static void process_formal_params(Node *n, int *count);
-static void process_actual_params(Node *n, Value *arg_vals[], int *count);
-static void process_var_def_list(Node *n, const char *type);
-static void process_block_item_list(Node *n);
+//-----------------------------------------------------------------------------
+//-----------------------辅助函数--------------------------------------------
+static char *get_btype(Node *btype_node);
+char *generate_lval_address(Node *node);
+char *build_llvm_type_str(Node *dim_node, const char *base_type);
+void process_var_def_list(Node *n, const char *base_type);
+void generate_initializer_stores(Node *init_node, char *base_ptr, char *llvm_type, int *dims, int num_dims,
+                                 int *flat_index);
+void get_dimensions(Node *dim_node, int *dims, int *num_dims);
+void process_block_item_list(Node *n);
+void process_param_types(Node *n, TypeNode **head_ref);
+void process_formal_params(Node *n, int *count);
+void process_actual_params(Node *n, Value *arg_vals[], int *count);
+void emit(const char *fmt, ...);
+//-----------------------------------------------------------------------------
 
 static Value *generate_code(Node *node)
 {
@@ -201,8 +69,8 @@ static Value *generate_code(Node *node)
     {
         if (node->num_children > 0)
         {
-            freeValue(generate_code(node->children[0]));
-            freeValue(generate_code(node->children[1]));
+            free_value(generate_code(node->children[0]));
+            free_value(generate_code(node->children[1]));
         }
         return NULL;
     }
@@ -238,8 +106,8 @@ static Value *generate_code(Node *node)
         }
 
         add_symbol_func(func_name, return_type_str, params_list_head);
-        generator.current_func_ret_type = return_type_str;
-        generator.last_instr_is_terminator = 0;
+        g.cur_ret_type = return_type_str;
+        g.last_is_terms = 0;
 
         emit("\ndefine dso_local %s @%s(%s) #0 {", return_type_str, func_name, signature);
         emit("entry:");
@@ -249,16 +117,16 @@ static Value *generate_code(Node *node)
         if (params_opt_node->num_children > 0)
             count_params(params_opt_node->children[0], &param_count);
 
-        generator.reg_counter = param_count - 1;
+        g.reg_cnt = param_count - 1;
 
         param_count = 0; // 重置以进行实际处理。
         if (params_opt_node->num_children > 0)
             process_formal_params(params_opt_node->children[0], &param_count);
 
-        freeValue(generate_code(block_node));
+        free_value(generate_code(block_node));
         exit_scope();
 
-        if (!generator.last_instr_is_terminator)
+        if (!g.last_is_terms)
         {
             if (strcmp(return_type_str, "void") == 0)
                 emit("\tret void");
@@ -273,7 +141,7 @@ static Value *generate_code(Node *node)
     {
         if (node->num_children > 0 && node->children[0]->num_children > 0)
         {
-            freeValue(generate_code(node->children[0]->children[0]));
+            free_value(generate_code(node->children[0]->children[0]));
         }
         return NULL;
     }
@@ -335,24 +203,24 @@ static Value *generate_code(Node *node)
             }
             char *final_ret_reg = ret_val->reg;
 
-            if (strcmp(generator.current_func_ret_type, ret_val->type) != 0)
+            if (strcmp(g.cur_ret_type, ret_val->type) != 0)
             {
                 final_ret_reg = new_reg();
-                if (strcmp(generator.current_func_ret_type, "float") == 0)
+                if (strcmp(g.cur_ret_type, "float") == 0)
                     emit("\t%s = sitofp %s %s to float", final_ret_reg, ret_val->type, ret_val->reg);
                 else
                     emit("\t%s = fptosi %s %s to i32", final_ret_reg, ret_val->type, ret_val->reg);
             }
-            emit("\tret %s %s", generator.current_func_ret_type, final_ret_reg);
+            emit("\tret %s %s", g.cur_ret_type, final_ret_reg);
             if (final_ret_reg != ret_val->reg)
                 free(final_ret_reg);
-            freeValue(ret_val);
+            free_value(ret_val);
         }
         else
         {
             emit("\tret void");
         }
-        generator.last_instr_is_terminator = 1;
+        g.last_is_terms = 1;
         return NULL;
     }
 
@@ -376,35 +244,35 @@ static Value *generate_code(Node *node)
             new_loop->continue_label = strdup(cond_label);
             new_loop->break_label = strdup(after_label);
             // b. 将新节点链接到旧的栈顶
-            new_loop->next = generator.loop_label_stack;
+            new_loop->next = g.loop_label_stack;
             // c. 更新栈顶指针
-            generator.loop_label_stack = new_loop;
+            g.loop_label_stack = new_loop;
 
             // 生成循环的进入和条件判断
             emit("\tbr label %%%s", cond_label);
             emit("%s:", cond_label);
             Value *cond_val = generate_code(node->children[0]);
             emit("\tbr i1 %s, label %%%s, label %%%s", cond_val->reg, body_label, after_label);
-            freeValue(cond_val);
+            free_value(cond_val);
 
             // 生成循环体
             emit("%s:", body_label);
-            generator.last_instr_is_terminator = 0; // 进入循环体前重置
-            freeValue(generate_code(node->children[1]));
+            g.last_is_terms = 0; // 进入循环体前重置
+            free_value(generate_code(node->children[1]));
 
             // 如果循环体内部没有 break/continue/return, 则跳回循环条件
-            if (!generator.last_instr_is_terminator)
+            if (!g.last_is_terms)
             {
                 emit("\tbr label %%%s", cond_label);
             }
 
             // 生成循环结束后的标签
             emit("%s:", after_label);
-            generator.last_instr_is_terminator = 0; // 循环结束后，代码流继续
+            g.last_is_terms = 0; // 循环结束后，代码流继续
 
             // --- 关键：出栈操作 ---
-            LoopLabels *top = generator.loop_label_stack;
-            generator.loop_label_stack = top->next; // 恢复到外层循环的栈
+            LoopLabels *top = g.loop_label_stack;
+            g.loop_label_stack = top->next; // 恢复到外层循环的栈
             free(top->continue_label);
             free(top->break_label);
             free(top);
@@ -429,29 +297,29 @@ static Value *generate_code(Node *node)
 
                 // --- 处理 then 分支 ---
                 emit("%s:", then_label);
-                generator.last_instr_is_terminator = 0; // 重置标志进入 then 块
-                freeValue(generate_code(node->children[1]));
+                g.last_is_terms = 0; // 重置标志进入 then 块
+                free_value(generate_code(node->children[1]));
                 // 独立为 then 分支添加跳转
-                if (!generator.last_instr_is_terminator)
+                if (!g.last_is_terms)
                 {
                     emit("\tbr label %%%s", merge_label);
                 }
-                then_terminated = generator.last_instr_is_terminator; // 记录 then 分支的状态
+                then_terminated = g.last_is_terms; // 记录 then 分支的状态
 
                 // --- 处理 else 分支 ---
                 emit("%s:", else_label);
-                generator.last_instr_is_terminator = 0; // 重置标志进入 else 块
-                freeValue(generate_code(node->children[2]));
+                g.last_is_terms = 0; // 重置标志进入 else 块
+                free_value(generate_code(node->children[2]));
                 // 独立为 else 分支添加跳转
-                if (!generator.last_instr_is_terminator)
+                if (!g.last_is_terms)
                 {
                     emit("\tbr label %%%s", merge_label);
                 }
-                else_terminated = generator.last_instr_is_terminator; // 记录 else 分支的状态
+                else_terminated = g.last_is_terms; // 记录 else 分支的状态
                 // merge 块只有在两个分支都未终结时才可能成为死代码，
                 // 但无论如何都需要生成，所以不需要复杂的逻辑判断。
-                // 关键是之后 last_instr_is_terminator 的状态。
-                generator.last_instr_is_terminator = then_terminated && else_terminated;
+                // 关键是之后 last_is_terms 的状态。
+                g.last_is_terms = then_terminated && else_terminated;
             }
             else // 处理 IfStmt (只有 then 分支)
             {
@@ -460,24 +328,24 @@ static Value *generate_code(Node *node)
 
                 // --- 处理 then 分支 ---
                 emit("%s:", then_label);
-                generator.last_instr_is_terminator = 0; // 重置标志
-                freeValue(generate_code(node->children[1]));
+                g.last_is_terms = 0; // 重置标志
+                free_value(generate_code(node->children[1]));
                 // 独立为 then 分支添加跳转
-                if (!generator.last_instr_is_terminator)
+                if (!g.last_is_terms)
                 {
                     emit("\tbr label %%%s", merge_label);
                 }
                 // if-then-else 的`else`分支相当于直接跳到merge,所以未终结
-                generator.last_instr_is_terminator = 0;
+                g.last_is_terms = 0;
             }
         }
 
         emit("%s:", merge_label);
-        // last_instr_is_terminator 的状态已经在 if/else 内部逻辑中正确设置
+        // last_is_terms 的状态已经在 if/else 内部逻辑中正确设置
         // 如果是 if-else 且两个分支都 return 了, 这里才为 true, 否则都为 false。
-        generator.last_instr_is_terminator = 0;
+        g.last_is_terms = 0;
 
-        freeValue(cond_val);
+        free_value(cond_val);
         free(then_label);
         free(else_label);
         free(merge_label);
@@ -487,11 +355,11 @@ static Value *generate_code(Node *node)
     }
     else if (strcmp(node->name, "BreakStmt") == 0)
     {
-        if (generator.loop_label_stack)
+        if (g.loop_label_stack)
         { // 检查是否在循环内
             // 跳转到栈顶的 "break_label"
-            emit("\tbr label %%%s", generator.loop_label_stack->break_label);
-            generator.last_instr_is_terminator = 1;
+            emit("\tbr label %%%s", g.loop_label_stack->break_label);
+            g.last_is_terms = 1;
         }
         else
         {
@@ -503,11 +371,11 @@ static Value *generate_code(Node *node)
 
     else if (strcmp(node->name, "ContinueStmt") == 0)
     {
-        if (generator.loop_label_stack)
+        if (g.loop_label_stack)
         { // 检查是否在循环内
             // 跳转到栈顶的 "continue_label"
-            emit("\tbr label %%%s", generator.loop_label_stack->continue_label);
-            generator.last_instr_is_terminator = 1;
+            emit("\tbr label %%%s", g.loop_label_stack->continue_label);
+            g.last_is_terms = 1;
         }
         else
         {
@@ -533,8 +401,8 @@ static Value *generate_code(Node *node)
             // LLVM 的 'and'/'or' 指令用于 i1 类型的布尔运算
             emit("\t%s = %s i1 %s, %s", res_reg, op_code, left->reg, right->reg);
 
-            freeValue(left);
-            freeValue(right);
+            free_value(left);
+            free_value(right);
             return new_value(res_reg, "i1"); // 逻辑运算的结果也是 i1
         }
 
@@ -618,8 +486,8 @@ static Value *generate_code(Node *node)
             free(left_reg);
         if (right_reg != right->reg)
             free(right_reg);
-        freeValue(left);
-        freeValue(right);
+        free_value(left);
+        free_value(right);
         return new_value(res_reg, result_type);
     }
 
@@ -637,7 +505,7 @@ static Value *generate_code(Node *node)
             else
                 emit("\t%s = sub i32 0, %s", res_reg, operand->reg);
             Value *res_val = new_value(res_reg, operand->type);
-            freeValue(operand);
+            free_value(operand);
             return res_val;
         }
         if (strcmp(op_str, "!") == 0)
@@ -650,7 +518,7 @@ static Value *generate_code(Node *node)
             char *res_reg = new_reg();
             emit("\t%s = zext i1 %s to i32", res_reg, cmp_reg);
             free(cmp_reg);
-            freeValue(operand);
+            free_value(operand);
             return new_value(res_reg, "i32");
         }
     }
@@ -729,7 +597,7 @@ static Value *generate_code(Node *node)
         // 5. 清理为参数动态分配的内存
         for (int i = 0; i < arg_count; i++)
         {
-            freeValue(arg_vals[i]);
+            free_value(arg_vals[i]);
         }
 
         // 返回函数调用的结果（对于 void 函数是 NULL，否则是一个新的 Value*）
@@ -771,8 +639,7 @@ static Value *generate_code(Node *node)
         if (strchr(node->name, '.') || strchr(node->name, 'e') || strchr(node->name, 'E'))
         {
             float f_val = (float)atof(node->name);
-            union
-            {
+            union {
                 float f;
                 uint32_t u;
             } bits = {.f = f_val};
@@ -788,60 +655,23 @@ static Value *generate_code(Node *node)
     return NULL;
 }
 
-/* ================================================================== */
-/* 辅助函数 (Helpers)                                           */
-/* ================================================================== */
-// get_type_str: 从类型节点获取LLVM类型字符串
-static char *get_type_str(Node *type_node)
+//-----------------------------------------------------------------------------
+//-----------------------辅助函数--------------------------------------------
+//-----------------------------------------------------------------------------
+static char *get_btype(Node *btype_node)
 {
-    if (strcmp(type_node->name, "int") == 0)
-        return "i32";
-    if (strcmp(type_node->name, "float") == 0)
-        return "float";
+    if (btype_node && btype_node->num_children > 0)
+    {
+        Node *type_token = btype_node->children[0];
+        if (strcmp(type_token->name, "int") == 0)
+            return "i32";
+        if (strcmp(type_token->name, "float") == 0)
+            return "float";
+    }
     return "void";
 }
 
-// ir.c: 在 process_formal_params 附近添加这个新函数
-static void count_params(Node *n, int *count)
-{
-    if (!n || n->num_children == 0)
-        return;
-    (*count)++;
-    if (n->num_children > 1)
-    {
-        count_params(n->children[1], count);
-    }
-}
-
-// generate_lval_address: 为左值(LVal)生成地址
-static char *get_lval_type(Node *node)
-{
-    if (strcmp(node->name, "LVal") == 0)
-    {
-        Symbol *sym = lookup_symbol(node->children[0]->name);
-        return strdup(sym->type);
-    }
-    if (strcmp(node->name, "ArrayAccess") == 0)
-    {
-        char *base_type = get_lval_type(node->children[0]);
-        // 从聚合类型 [N x T] 中推断出元素类型 T
-        char *element_type = strchr(base_type, 'x');
-        if (element_type)
-        {
-            char result[256];
-            // element_type+2 跳过 "x "
-            strcpy(result, element_type + 2);
-            // 去掉末尾的 ']'
-            result[strlen(result) - 1] = '\0';
-            free(base_type);
-            return strdup(result);
-        }
-        return base_type;
-    }
-    return NULL;
-}
-
-static char *generate_lval_address(Node *node)
+char *generate_lval_address(Node *node)
 {
     if (strcmp(node->name, "LVal") == 0)
     {
@@ -864,7 +694,7 @@ static char *generate_lval_address(Node *node)
 
         free(aggregate_type);
         free(base_ptr_reg);
-        freeValue(index_val);
+        free_value(index_val);
         return res_ptr_reg;
     }
 
@@ -872,7 +702,7 @@ static char *generate_lval_address(Node *node)
     exit(1);
 }
 
-static char *build_llvm_type_str(Node *dim_node, const char *base_type)
+char *build_llvm_type_str(Node *dim_node, const char *base_type)
 {
     if (!dim_node || dim_node->num_children == 0)
     {
@@ -891,14 +721,14 @@ static char *build_llvm_type_str(Node *dim_node, const char *base_type)
     sprintf(result_buf, "[%s x %s]", dim_size_val->reg, inner_type);
 
     free(inner_type);
-    freeValue(dim_size_val);
+    free_value(dim_size_val);
 
     return strdup(result_buf);
 }
 
 // process_var_def_list: 处理变量定义列表
 
-static void process_var_def_list(Node *n, const char *base_type)
+void process_var_def_list(Node *n, const char *base_type)
 {
     if (!n || n->num_children == 0)
         return;
@@ -952,7 +782,7 @@ static void process_var_def_list(Node *n, const char *base_type)
 
             if (final_init_reg != init_val->reg)
                 free(final_init_reg);
-            freeValue(init_val);
+            free_value(init_val);
         }
     }
 
@@ -965,23 +795,10 @@ static void process_var_def_list(Node *n, const char *base_type)
     }
 }
 
-// get_dimensions: 从维度AST节点中提取维度信息
-static void get_dimensions(Node *dim_node, int *dims, int *num_dims)
-{
-    if (!dim_node || dim_node->num_children == 0)
-        return;
-
-    Value *dim_val = generate_code(dim_node->children[0]);
-    dims[(*num_dims)++] = atoi(dim_val->reg);
-    freeValue(dim_val);
-
-    get_dimensions(dim_node->children[1], dims, num_dims);
-}
-
 // generate_initializer_stores: 生成初始化存储指令
 
-static void generate_initializer_stores(Node *init_node, char *base_ptr, char *llvm_type, int *dims, int num_dims,
-                                        int *flat_index)
+void generate_initializer_stores(Node *init_node, char *base_ptr, char *llvm_type, int *dims, int num_dims,
+                                 int *flat_index)
 {
     // 如果节点为空，直接返回
     if (!init_node)
@@ -1025,7 +842,7 @@ static void generate_initializer_stores(Node *init_node, char *base_ptr, char *l
 
         if (final_val_reg != val->reg)
             free(final_val_reg);
-        freeValue(val);
+        free_value(val);
         free(element_ptr);
         (*flat_index)++;
     }
@@ -1036,14 +853,25 @@ static void generate_initializer_stores(Node *init_node, char *base_ptr, char *l
             generate_initializer_stores(init_node->children[i], base_ptr, llvm_type, dims, num_dims, flat_index);
     }
 }
+// get_dimensions: 从维度AST节点中提取维度信息
+void get_dimensions(Node *dim_node, int *dims, int *num_dims)
+{
+    if (!dim_node || dim_node->num_children == 0)
+        return;
 
+    Value *dim_val = generate_code(dim_node->children[0]);
+    dims[(*num_dims)++] = atoi(dim_val->reg);
+    free_value(dim_val);
+
+    get_dimensions(dim_node->children[1], dims, num_dims);
+}
 // process_block_item_list: 递归处理语句块内条目
-static void process_block_item_list(Node *n)
+void process_block_item_list(Node *n)
 {
     if (!n || n->num_children == 0)
         return;
 
-    freeValue(generate_code(n->children[0]));
+    free_value(generate_code(n->children[0]));
 
     if (n->num_children > 1)
     {
@@ -1052,7 +880,7 @@ static void process_block_item_list(Node *n)
 }
 
 // 修正：健壮的参数类型列表构建函数
-static void process_param_types(Node *n, TypeNode **head_ref)
+void process_param_types(Node *n, TypeNode **head_ref)
 {
     if (!n || n->num_children == 0)
         return;
@@ -1067,7 +895,7 @@ static void process_param_types(Node *n, TypeNode **head_ref)
 }
 
 // 修正：健壮的函数形参处理函数
-static void process_formal_params(Node *n, int *count)
+void process_formal_params(Node *n, int *count)
 {
     if (!n || n->num_children == 0)
         return;
@@ -1086,7 +914,7 @@ static void process_formal_params(Node *n, int *count)
 }
 
 // 修正：健壮的函数实参处理函数
-static void process_actual_params(Node *n, Value *arg_vals[], int *count)
+void process_actual_params(Node *n, Value *arg_vals[], int *count)
 {
     if (!n || n->num_children == 0)
         return;
@@ -1099,50 +927,51 @@ static void process_actual_params(Node *n, Value *arg_vals[], int *count)
     // 处理当前节点的值
     arg_vals[(*count)++] = generate_code(n->children[0]);
 }
+//-----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 
 // 生成器设置与销毁
 
-static void init_ir_generator()
+static void init_ir_g()
 {
-    generator.reg_counter = 0;
-    generator.label_counter = 0;
-    generator.code_size = 0;
-    generator.code_capacity = 1024;
-    generator.code_buffer = (char **)malloc(generator.code_capacity * sizeof(char *));
-    generator.current_scope = NULL;
-    generator.current_func_ret_type = NULL;
-    generator.last_instr_is_terminator = 0;
-    generator.loop_label_stack = NULL;
+    g.reg_cnt = 0;
+    g.label_cnt = 0;
+    g.size = 0;
+    g.cap = 1024;
+    g.buf = (char **)malloc(g.cap * sizeof(char *));
+    g.current_scope = NULL;
+    g.cur_ret_type = NULL;
+    g.last_is_terms = 0;
+    g.loop_label_stack = NULL;
     enter_scope();
 }
 
-static void free_ir_generator()
+static void free_ir_g()
 {
-    while (generator.current_scope)
+    while (g.current_scope)
     {
         exit_scope();
     }
-    for (int i = 0; i < generator.code_size; i++)
+    for (int i = 0; i < g.size; i++)
     {
-        free(generator.code_buffer[i]);
+        free(g.buf[i]);
     }
-    free(generator.code_buffer);
+    free(g.buf);
 }
 
-static void emit(const char *format, ...)
+void emit(const char *fmt, ...)
 {
-    if (generator.code_size >= generator.code_capacity)
+    if (g.size == g.cap)
     {
-        // 扩容
-        generator.code_capacity *= 2;
-        generator.code_buffer = (char **)realloc(generator.code_buffer, generator.code_capacity * sizeof(char *));
+        g.cap = g.cap ? g.cap << 1 : 1024;
+        g.buf = realloc(g.buf, g.cap * sizeof(char *));
     }
-    char temp_buf[1024];
-    va_list args;
-    va_start(args, format);
-    vsnprintf(temp_buf, sizeof(temp_buf), format, args);
-    va_end(args);
-    generator.code_buffer[generator.code_size++] = strdup(temp_buf);
+    char line[1024];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof line, fmt, ap);
+    va_end(ap);
+    g.buf[g.size++] = strdup(line);
 }
 
 static void write_ir_to_file(const char *filename)
@@ -1153,24 +982,30 @@ static void write_ir_to_file(const char *filename)
         perror("Could not open output file");
         return;
     }
-    for (int i = 0; i < generator.code_size; i++)
+    for (int i = 0; i < g.size; i++)
     {
-        fprintf(out, "%s\n", generator.code_buffer[i]);
+        fprintf(out, "%s\n", g.buf[i]);
     }
     fclose(out);
 }
 
-static int is_scalar_init(Node *n)
-{
-    /* 叶子节点或明确的 ConstExp / Exp 都视为一个可直接求值的标量 */
-    return (n->num_children == 0) || strcmp(n->name, "ConstExp") == 0 || strcmp(n->name, "Exp") == 0;
-}
+
 // 公共入口点
 
-void generate_llvm_ir(Node *root, const char *output_filename)
+void generate_llvm_ir(struct Node *root, const char *out_path)
 {
-    init_ir_generator();
+    memset(&g, 0, sizeof g);
+    enter_scope();
+
+    /* 递归遍历 AST */
     generate_code(root);
-    write_ir_to_file(output_filename);
-    free_ir_generator();
+    FILE *fp = fopen(out_path, "w");
+    for (int i = 0; i < g.size; i++)
+        fprintf(fp, "%s\n", g.buf[i]);
+    fclose(fp);
+    /* 资源清理（作用域 / buf） */
+    exit_scope();
+    for (int i = 0; i < g.size; i++)
+        free(g.buf[i]);
+    free(g.buf);
 }

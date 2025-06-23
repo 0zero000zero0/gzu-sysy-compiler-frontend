@@ -1,10 +1,11 @@
-#ifndef IR_GENERATOR_H
-#define IR_GENERATOR_H
+#ifndef IR_H
+#define IR_H
+/**
+ * @file ir.h
+ * @brief 对外只暴露一个函数：把 AST → LLVM-IR(.ll)
+ */
+struct Node; /* 前置声明：语法树节点（由 parser 产出） */
 
-#include "node.h"
-#include <stdio.h>
+void generate_llvm_ir(struct Node *ast, const char *output_path);
 
-void generate_llvm_ir(Node *root, const char *output_filename);
-
-
-#endif // IR_GENERATOR_H
+#endif /* IR_H */
