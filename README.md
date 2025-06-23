@@ -3,8 +3,8 @@
 
 1. `sysy.l`是Flex的词法分析文件
 2. `sysy.y`是Bison的句法分析文件
-3. `node`是AST的结点类
-4. `ir`是中间代码生成文件，把Bison生成的AST转换成 *LLVM Light IR*
+4. `irgen`是中间代码生成文件，遍历Bison生成的AST，生成 *LLVM Light IR*
+5. `heplers`,`symbol`,`value`,`node`是辅助的文件
 
 ## 运行
 前置要求:
