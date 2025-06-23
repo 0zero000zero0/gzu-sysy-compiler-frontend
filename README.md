@@ -32,25 +32,34 @@ make build
 
 对应文件树如下:
 ```bash
-.
 ├── ast
-│   ├──(生成的AST)
+│   ├── (生成的AST)
+├── c
+│   ├── (批量测试时，GCC编译生成的可执行文件)
+├── chatgpt.txt
 ├── exe
-│   └── sysy_complier
-├── ir.c
+│   └── (SySy 2022编译器可执行文件)
+├── helpers.c
+├── helpers.h
+├── irgen.c
 ├── ir.h
 ├── lex.yy.c
+├── LICENSE
 ├── ll
-│   ├──(生成的LLVM Light IR)
+│   ├──(生成的LLVM IR)
 ├── Makefile
 ├── node.c
 ├── node.h
 ├── README.md
+├── symbol.c
+├── symbol.h
 ├── sysy.l
 ├── sysy.tab.c
 ├── sysy.tab.h
 ├── sysy.y
-└── test
-    ├──(测试用例)
+├── test
+│   ├── (批量测试用例代码)
+├── value.c
+├── value.h
 ```
 
