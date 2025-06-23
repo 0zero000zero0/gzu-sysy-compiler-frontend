@@ -1,1 +1,0 @@
-< test/array.c: No such file or directory
