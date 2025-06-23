@@ -12,10 +12,10 @@
 #include "sysy.tab.h" /* token 宏 & AST Node 定义 */
 #include "value.h"
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
 typedef struct
 {
     int reg_cnt;                  // 当前寄存器使用个数
@@ -31,21 +31,44 @@ typedef struct
 
 static IRGen g = {0};
 
-static char *new_reg()
+/* ------------------------------------------------------------------ */
+/**
+ * @brief 生成一个新的 SSA 虚拟寄存器名。
+ *
+ * 生成规则：`%<递增计数>` ，计数器保存在全局 `g.reg_cnt` 中。
+ *
+ * @return `strdup` 后的寄存器字符串（调用方负责 `free`）
+ *
+ * @note
+ *  - 函数使用了静态缓冲 `buf` 临时格式化，因此线程不安全。
+ *  - 若寄存器大量增长，可适当增大 `buf` 长度。
+ */
+static char *new_reg(void)
 {
     static char buf[16];
-    sprintf(buf, "%%%d", ++g.reg_cnt);
-    return strdup(buf);
+    sprintf(buf, "%%%d", ++g.reg_cnt); /* 计数器自增并格式化为 "%<n>" */
+    return strdup(buf);                /* 复制一份供调用者使用      */
 }
 
+/* ------------------------------------------------------------------ */
+/**
+ * @brief 生成一个新的基本块标签。
+ *
+ * 例：`cond0` / `if_then17` / `while_body3`
+ * 调用者提供前缀，内部使用 `g.label_cnt` 做递增后缀。
+ *
+ * @param prefix  标签前缀（不可为 NULL）
+ * @return        `strdup` 后的标签字符串（调用方负责 `free`）
+ */
 static char *new_label(const char *prefix)
 {
     static char buf[32];
     sprintf(buf, "%s%d", prefix, ++g.label_cnt);
     return strdup(buf);
 }
+
 //-----------------------------------------------------------------------------
-//-----------------------辅助函数--------------------------------------------
+//-----------------------辅助函数申明--------------------------------------------
 static char *get_btype(Node *btype_node);
 char *generate_lval_address(Node *node);
 char *build_llvm_type_str(Node *dim_node, const char *base_type);
@@ -656,278 +679,414 @@ static Value *generate_code(Node *node)
 }
 
 //-----------------------------------------------------------------------------
-//-----------------------辅助函数--------------------------------------------
+//-----------------------辅助函数定义--------------------------------------------
 //-----------------------------------------------------------------------------
+/**
+ * @brief 从 `BType | FuncType` 节点推断 **LLVM IR 基本类型字符串**。
+ *
+ * 仅支持 `int / float / void` 三种，在 SysY 语言中已足够。
+ *
+ * @param btype_node  类型节点（允许为 NULL）
+ * @return            常量串 `"i32" / "float" / "void"`
+ */
 static char *get_btype(Node *btype_node)
 {
     if (btype_node && btype_node->num_children > 0)
     {
-        Node *type_token = btype_node->children[0];
-        if (strcmp(type_token->name, "int") == 0)
+        Node *tok = btype_node->children[0];
+        if (strcmp(tok->name, "int") == 0)
             return "i32";
-        if (strcmp(type_token->name, "float") == 0)
+        if (strcmp(tok->name, "float") == 0)
             return "float";
     }
     return "void";
 }
 
+/***********************************************************************
+ *  LVal / 数组工具
+ ***********************************************************************/
+
+/* ------------------------------------------------------------------ */
+/**
+ * @brief 递归生成 “左值” 在栈上的地址（指针寄存器）。
+ *
+ * - `LVal`           ➜ 直接返回符号表里保存的 `stack_ptr`
+ * - `ArrayAccess`    ➜ 先递归拿到基础指针，再 emit GEP
+ *
+ * @param node  `LVal` 或 `ArrayAccess` 语法节点
+ * @return      新寄存器（strdup），调用者负责释放
+ *
+ * @warning 未检查数组越界；假设语义分析阶段已保证合法。
+ */
 char *generate_lval_address(Node *node)
 {
+    /* -------- 标识符变量 -------------------------------------- */
     if (strcmp(node->name, "LVal") == 0)
     {
         Symbol *sym = lookup_symbol(node->children[0]->name);
         if (sym)
-            return strdup(sym->llvm_reg);
+            return strdup(sym->stack_ptr); /* 直接返回栈指针 */
     }
 
+    /* -------- 数组访问：base[idx] ----------------------------- */
     if (strcmp(node->name, "ArrayAccess") == 0)
     {
-        char *base_ptr_reg = generate_lval_address(node->children[0]);
+        /* ① 递归求得基指针 */
+        char *base_ptr = generate_lval_address(node->children[0]);
+
+        /* ② 计算下标值（LLVM 要求先算好） */
         Value *index_val = generate_code(node->children[1]);
 
-        // 递归地获取基指针指向的正确聚合类型
+        /* ③ 获取聚合类型 `[N x T]`，用于 GEP 类型推导 */
         char *aggregate_type = get_lval_type(node->children[0]);
 
-        char *res_ptr_reg = new_reg();
-        emit("\t%s = getelementptr inbounds %s, %s* %s, i32 0, %s %s", res_ptr_reg, aggregate_type, aggregate_type,
-             base_ptr_reg, index_val->type, index_val->reg);
+        /* ④ emit GEP 指令：&base[0][idx] … */
+        char *res_ptr = new_reg();
+        emit("\t%s = getelementptr inbounds %s, %s* %s, i32 0, %s %s", res_ptr, aggregate_type, aggregate_type,
+             base_ptr, index_val->type, index_val->reg);
 
+        /* ⑤ 清理临时资源并返回 */
         free(aggregate_type);
-        free(base_ptr_reg);
+        free(base_ptr);
         free_value(index_val);
-        return res_ptr_reg;
+        return res_ptr;
     }
 
-    fprintf(stderr, "FATAL: generate_lval_address called with unexpected node type '%s'.\n", node->name);
+    /* -------- 非法调用 ---------------------------------------- */
+    fprintf(stderr, "FATAL: generate_lval_address called with unexpected node '%s'\n", node->name);
     exit(1);
 }
 
+/* ------------------------------------------------------------------ */
+/**
+ * @brief 递归构造 LLVM 数组类型字符串。
+ *
+ * 语法树维度链形如：`dim_node -> [size] dim_node'`
+ * 递归到最内层，把 `base_type` 包成 `[size x T]` 形式。
+ *
+ * @param dim_node   维度链起点 (`ArrDefDims` 之类)
+ * @param base_type  元素类型 (`"i32" / "float"`)
+ * @return           新 `strdup` 字符串（调用方负责释放）
+ */
 char *build_llvm_type_str(Node *dim_node, const char *base_type)
 {
+    /* 终止条件：无更多维度，直接返回基本类型 */
     if (!dim_node || dim_node->num_children == 0)
-    {
         return strdup(base_type);
-    }
+
+    /* ① 递归处理剩余维度，先拿到内层类型 */
     char *inner_type = build_llvm_type_str(dim_node->children[1], base_type);
 
-    Value *dim_size_val = generate_code(dim_node->children[0]);
-    if (strcmp(dim_size_val->type, "i32") != 0)
+    /* ② 当前维度大小应为整型常量表达式 */
+    Value *dim_val = generate_code(dim_node->children[0]);
+    if (strcmp(dim_val->type, "i32") != 0)
     {
         fprintf(stderr, "FATAL: Array dimension must be an integer.\n");
         exit(1);
     }
 
-    char result_buf[512];
-    sprintf(result_buf, "[%s x %s]", dim_size_val->reg, inner_type);
+    /* ③ 拼装为 “[Size x Inner]” */
+    char buf[512];
+    sprintf(buf, "[%s x %s]", dim_val->reg, inner_type);
 
+    /* ④ 资源释放 */
     free(inner_type);
-    free_value(dim_size_val);
+    free_value(dim_val);
 
-    return strdup(result_buf);
+    return strdup(buf);
 }
 
-// process_var_def_list: 处理变量定义列表
+/***********************************************************************
+ *  变量定义 / 初值展开
+ ***********************************************************************/
 
+/* ------------------------------------------------------------------ */
+/**
+ * @brief 处理一个 **VarDef 列表**（可能链式递归）并生成 IR。
+ *
+ * 支持：
+ *  - 基本类型 / 多维数组 (alloca + zeroinit)
+ *  - 可选初始化（标量或聚合）
+ *
+ * @param n          `VarDefList` 节点
+ * @param base_type  LLVM 基本类型字符串（如 `"i32"`/`"float"`)
+ */
 void process_var_def_list(Node *n, const char *base_type)
 {
     if (!n || n->num_children == 0)
         return;
 
-    Node *var_def_node = n->children[0];
-    char *var_name = var_def_node->children[0]->name;
-    Node *dim_list_node = var_def_node->children[1];
+    /* ---------- 取出本次要处理的 VarDef ---------------------- */
+    Node *var_def = n->children[0];
+    char *var_name = var_def->children[0]->name;
+    Node *dim_list_node = var_def->children[1];
+
+    /* ---------- 1. 计算完整 LLVM 类型 ------------------------ */
     char *llvm_type = build_llvm_type_str(dim_list_node, base_type);
+
+    /* ---------- 2. 分配栈槽并加入符号表 ---------------------- */
     char *ptr_reg = new_reg();
-
     emit("\t%s = alloca %s", ptr_reg, llvm_type);
-    add_symbol(var_name, llvm_type, ptr_reg, 0);
+    add_symbol(var_name, llvm_type, ptr_reg, /*is_const=*/0);
 
+    /* ---------- 3. 对数组做零填充 ---------------------------- */
     if (dim_list_node->num_children > 0)
-    {
         emit("\tstore %s zeroinitializer, %s* %s", llvm_type, llvm_type, ptr_reg);
-    }
 
-    if (strcmp(var_def_node->name, "VarDef_Init") == 0)
+    /* ---------- 4. 处理可选初始化 ---------------------------- */
+    if (strcmp(var_def->name, "VarDef_Init") == 0)
     {
-        Node *init_val_node = var_def_node->children[2];
-        if (dim_list_node->num_children > 0)
-        { // 数组初始化
-            int dims[10] = {0}, num_dims = 0;
-            get_dimensions(dim_list_node, dims, &num_dims);
-            int flat_index = 0;
+        Node *init_val_node = var_def->children[2];
 
-            // --- 关键修正 ---
-            // 直接将 InitVal 节点 (其 name 可能是 InitVal_Aggregate) 传递下去
-            // generate_initializer_stores 函数内部知道如何处理它
-            generate_initializer_stores(init_val_node, ptr_reg, llvm_type, dims, num_dims, &flat_index);
+        if (dim_list_node->num_children > 0)
+        { /* -------- 4.a 数组初始化 (递归展开) --------------- */
+            int dims[10] = {0}, num_dims = 0, flat_idx = 0;
+            get_dimensions(dim_list_node, dims, &num_dims);
+            generate_initializer_stores(init_val_node, ptr_reg, llvm_type, dims, num_dims, &flat_idx);
         }
         else
-        { // 简单变量初始化
+        { /* -------- 4.b 标量初始化 ------------------------- */
             Value *init_val = generate_code(init_val_node);
-            char *final_init_reg = init_val->reg;
+            char *final_reg = init_val->reg;
 
+            /* 类型不一致时做隐式转换 */
             if (strcmp(base_type, init_val->type) != 0)
             {
-                final_init_reg = new_reg();
+                final_reg = new_reg();
                 if (strcmp(base_type, "float") == 0)
-                {
-                    emit("\t%s = sitofp %s %s to float", final_init_reg, init_val->type, init_val->reg);
-                }
+                    emit("\t%s = sitofp %s %s to float", final_reg, init_val->type, init_val->reg);
                 else
-                {
-                    emit("\t%s = fptosi %s %s to i32", final_init_reg, init_val->type, init_val->reg);
-                }
+                    emit("\t%s = fptosi %s %s to i32", final_reg, init_val->type, init_val->reg);
             }
-            emit("\tstore %s %s, %s* %s", base_type, final_init_reg, base_type, ptr_reg);
 
-            if (final_init_reg != init_val->reg)
-                free(final_init_reg);
+            emit("\tstore %s %s, %s* %s", base_type, final_reg, base_type, ptr_reg);
+
+            if (final_reg != init_val->reg)
+                free(final_reg);
             free_value(init_val);
         }
     }
 
+    /* ---------- 5. 递归处理链表剩余部分 ---------------------- */
     free(llvm_type);
     free(ptr_reg);
 
     if (n->num_children > 1)
-    {
-        process_var_def_list(n->children[n->num_children - 1], base_type);
-    }
+        process_var_def_list(n->children[1], base_type);
 }
 
-// generate_initializer_stores: 生成初始化存储指令
-
+/* ------------------------------------------------------------------ */
+/**
+ * @brief （递归）将聚合初始化列表拆解成若干条 `store` 指令。
+ *
+ * @param init_node     `InitVal` / 嵌套 `InitVal_Aggregate` 节点
+ * @param base_ptr      数组在栈上的基指针
+ * @param llvm_type     完整数组类型字符串（形如 `[10 x i32]`）
+ * @param dims          每一维大小数组
+ * @param num_dims      维度个数
+ * @param flat_index    扁平化下标（调用方持有，递归中递增）
+ *
+ * @note 本函数需与 `build_llvm_type_str` / `get_dimensions`
+ *       保持一致的维度语义。
+ */
 void generate_initializer_stores(Node *init_node, char *base_ptr, char *llvm_type, int *dims, int num_dims,
                                  int *flat_index)
 {
-    // 如果节点为空，直接返回
+    /* ---------- 终止条件：标量 ------------------------------ */
     if (!init_node)
         return;
 
-    // 基准情形: 节点是一个最终的数值表达式
     if (is_scalar_init(init_node))
     {
+        /* ① 计算子元素在数组中的多维下标 -> 构造 GEP index 列表 */
         Value *val = generate_code(init_node);
 
-        char gep_indices[256] = "i32 0";
-        char temp[32];
-        int temp_index = *flat_index;
-        for (int i = 0; i < num_dims; i++)
+        char gep_idx[256] = "i32 0"; /* 前置 0：指向首元素 */
         {
-            int dim_prod = 1;
-            for (int j = i + 1; j < num_dims; j++)
-                dim_prod *= dims[j];
-            int index_i = temp_index / dim_prod;
-            sprintf(temp, ", i32 %d", index_i);
-            strcat(gep_indices, temp);
-            temp_index %= dim_prod;
+            char tmp[32];
+            int rem = *flat_index;
+            for (int d = 0; d < num_dims; ++d)
+            {
+                int prod = 1;
+                for (int k = d + 1; k < num_dims; ++k)
+                    prod *= dims[k];
+                int idx = rem / prod;
+                sprintf(tmp, ", i32 %d", idx);
+                strcat(gep_idx, tmp);
+                rem %= prod;
+            }
         }
 
-        char *element_ptr = new_reg();
-        char element_type[64];
-        strcpy(element_type, (strstr(llvm_type, "float") ? "float" : "i32"));
+        /* ② 得到元素指针并存值 */
+        char *elem_ptr = new_reg();
+        char elem_ty[8];
+        strcpy(elem_ty, strstr(llvm_type, "float") ? "float" : "i32");
 
-        char *final_val_reg = val->reg;
-        if (strcmp(element_type, val->type) != 0)
+        char *final_reg = val->reg;
+        if (strcmp(elem_ty, val->type) != 0)
         {
-            final_val_reg = new_reg();
-            if (strcmp(element_type, "float") == 0)
-                emit("\t%s = sitofp i32 %s to float", final_val_reg, val->reg);
+            final_reg = new_reg();
+            if (strcmp(elem_ty, "float") == 0)
+                emit("\t%s = sitofp i32 %s to float", final_reg, val->reg);
             else
-                emit("\t%s = fptosi float %s to i32", final_val_reg, val->reg);
+                emit("\t%s = fptosi float %s to i32", final_reg, val->reg);
         }
 
-        emit("\t%s = getelementptr inbounds %s, %s* %s, %s", element_ptr, llvm_type, llvm_type, base_ptr, gep_indices);
-        emit("\tstore %s %s, %s* %s", element_type, final_val_reg, element_type, element_ptr);
+        emit("\t%s = getelementptr inbounds %s, %s* %s, %s", elem_ptr, llvm_type, llvm_type, base_ptr, gep_idx);
+        emit("\tstore %s %s, %s* %s", elem_ty, final_reg, elem_ty, elem_ptr);
 
-        if (final_val_reg != val->reg)
-            free(final_val_reg);
+        /* ③ 清理 & flat_index++ */
+        if (final_reg != val->reg)
+            free(final_reg);
         free_value(val);
-        free(element_ptr);
+        free(elem_ptr);
         (*flat_index)++;
     }
-    // 递归情形: 节点是任何类型的包装器或列表
     else
     {
+        /* ---------- 递归：聚合 ------------------------------- */
         for (int i = 0; i < init_node->num_children; ++i)
             generate_initializer_stores(init_node->children[i], base_ptr, llvm_type, dims, num_dims, flat_index);
     }
 }
-// get_dimensions: 从维度AST节点中提取维度信息
+
+/* ------------------------------------------------------------------ */
+/*-----------------------------辅助递归函数-----------------------------*/
+/* ------------------------------------------------------------------ */
+/**
+ * @brief 解析维度链表节点，收集每一维的常量大小。
+ *
+ * 语法形如 <dim> ::=
+ * ```
+ *   ConstExp
+ *   ConstExp [更多维度]
+ * ```
+ *
+ * 该函数将维度值写入 @p dims 数组，并累加维度个数 @p num_dims。
+ * 依赖语义分析保证所有维度都是编译期常量整数。
+ *
+ * @param dim_node  AST 维度结点（形如 `[ConstExp]` 的链表）
+ * @param dims      输出数组，保存每一维度大小
+ * @param num_dims  已填入的维度数目（作为 in/out 索引）
+ */
 void get_dimensions(Node *dim_node, int *dims, int *num_dims)
 {
     if (!dim_node || dim_node->num_children == 0)
-        return;
+        return; /* 递归终止 */
 
+    /* 解析当前维度表达式 —— 返回值在 @c Value.reg 中是十进制字符串 */
     Value *dim_val = generate_code(dim_node->children[0]);
-    dims[(*num_dims)++] = atoi(dim_val->reg);
-    free_value(dim_val);
+    dims[(*num_dims)++] = atoi(dim_val->reg); /* 写入并自增维度计数 */
 
+    free_value(dim_val); /* 释放临时 Value  */
+
+    /* 递归解析后续维度 */
     get_dimensions(dim_node->children[1], dims, num_dims);
 }
-// process_block_item_list: 递归处理语句块内条目
+
+/* -------------------------------------------------------------------------- */
+/**
+ * @brief 递归遍历并生成 <BlockItemList> 中的所有语句 / 声明。
+ *
+ * 语法结构：
+ * ```
+ * BlockItemList ::= BlockItem | BlockItemList BlockItem
+ * ```
+ * 该函数保证按源顺序生成 IR，并在离开节点时释放产生的临时值。
+ *
+ * @param n  AST BlockItemList 结点
+ */
 void process_block_item_list(Node *n)
 {
     if (!n || n->num_children == 0)
         return;
 
-    free_value(generate_code(n->children[0]));
+    /* --- 1. 处理当前 BlockItem ---------------------------------- */
+    free_value(generate_code(n->children[0])); /* 可能返回 Value* */
 
+    /* --- 2. 递归处理剩余 BlockItem ------------------------------ */
     if (n->num_children > 1)
-    {
         process_block_item_list(n->children[1]);
-    }
 }
 
-// 修正：健壮的参数类型列表构建函数
+/* -------------------------------------------------------------------------- */
+/**
+ * @brief 构建函数形参类型链表（反向递归实现正向顺序）。
+ *
+ * 该链表稍后用于生成函数签名以及存入符号表。
+ *
+ * @param n         AST ParamList / Param 结点
+ * @param head_ref  指向链表头指针的指针（头插法）
+ */
 void process_param_types(Node *n, TypeNode **head_ref)
 {
     if (!n || n->num_children == 0)
         return;
-    // 先递归，再头插，实现链表反转，得到正确顺序
+
+    /* 先递归到底，再头插 —— 最终链表顺序与源码形参顺序一致 */
     if (n->num_children > 1)
         process_param_types(n->children[1], head_ref);
+
     Node *param_node = n->children[0];
-    TypeNode *new_tn = (TypeNode *)malloc(sizeof(TypeNode));
-    new_tn->type = strdup(get_type_str(param_node->children[0]));
-    new_tn->next = *head_ref;
-    *head_ref = new_tn;
+    TypeNode *tn = malloc(sizeof(TypeNode));
+    tn->type = strdup(get_type_str(param_node->children[0]));
+    tn->next = *head_ref;
+    *head_ref = tn;
 }
 
-// 修正：健壮的函数形参处理函数
+/**
+ * @brief 在函数入口块为每个形参分配栈槽并写入符号表。
+ *
+ * @param n      AST ParamList / Param 结点
+ * @param count  当前已处理的形参序号（作为寄存器编号）
+ */
 void process_formal_params(Node *n, int *count)
 {
     if (!n || n->num_children == 0)
         return;
+
+    /* ---------- 解析形参数目 1 个 -------------------------------- */
     Node *param_node = n->children[0];
-    char *param_type = get_type_str(param_node->children[0]);
-    char *param_name = param_node->children[1]->name;
-    char param_reg[16];
-    snprintf(param_reg, sizeof(param_reg), "%%%d", (*count)++);
-    char *ptr_reg = new_reg();
-    emit("\t%s = alloca %s", ptr_reg, param_type);
-    emit("\tstore %s %s, %s* %s", param_type, param_reg, param_type, ptr_reg);
-    add_symbol(param_name, param_type, ptr_reg, 0);
-    free(ptr_reg);
+    char *type_str = get_type_str(param_node->children[0]);
+    char *name_str = param_node->children[1]->name;
+
+    /* ① 形参在入口块先 `alloca` 再 `store %N` ------------------- */
+    char arg_reg[16];
+    snprintf(arg_reg, sizeof arg_reg, "%%%d", (*count)++);
+    char *stack_ptr = new_reg();
+    emit("\t%s = alloca %s", stack_ptr, type_str);
+    emit("\tstore %s %s, %s* %s", type_str, arg_reg, type_str, stack_ptr);
+
+    /* ② 将形参加入当前作用域符号表 ------------------------------- */
+    add_symbol(name_str, type_str, stack_ptr, /*is_const=*/0);
+
+    free(stack_ptr); /* 仅释放临时字符串，本地变量仍指向符号表值 */
+
+    /* ③ 处理后续 “, param” -------------------------------------- */
     if (n->num_children > 1)
         process_formal_params(n->children[1], count);
 }
 
-// 修正：健壮的函数实参处理函数
+/* -------------------------------------------------------------------------- */
+/**
+ * @brief 收集实参与其生成的临时寄存器，保持左到右顺序。
+ *
+ * @param n         AST FuncRParams / ExpList 结点
+ * @param arg_vals  输出数组，保存生成的 Value*
+ * @param count     已填入的实参与数量（递增）
+ */
 void process_actual_params(Node *n, Value *arg_vals[], int *count)
 {
     if (!n || n->num_children == 0)
         return;
 
-    // 递归处理列表的剩余部分，以保持参数顺序正确
+    /* 递归到最右端后回溯，以保证 arg_vals[0] 对应源码第一个实参 */
     if (n->num_children > 1)
-    {
         process_actual_params(n->children[1], arg_vals, count);
-    }
-    // 处理当前节点的值
+
     arg_vals[(*count)++] = generate_code(n->children[0]);
 }
-//-----------------------------------------------------------------------------
+
 //-----------------------------------------------------------------------------
 
 // 生成器设置与销毁
@@ -988,7 +1147,6 @@ static void write_ir_to_file(const char *filename)
     }
     fclose(out);
 }
-
 
 // 公共入口点
 

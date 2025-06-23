@@ -40,32 +40,6 @@ Node* new_node(const char* name, int num_children, ...) {
   return node;
 }
 
-// void print_AST(Node* node, int level) {
-//   if (node == NULL) {
-//     return;
-//   }
-
-//   if (node->name == NULL) {
-//     return;
-//   }
-
-//   if (level > 0) {
-//     for (int i = 0; i < level - 1; i++) {
-//       printf("   ");
-//     }
-//     printf("|--");
-//   }
-
-//   if (node->num_children == 0) {
-//     printf("%s\n", node->name ? node->name : "");
-//   } else {
-//     printf("<%s>\n", node->name ? node->name : "");
-//   }
-
-//   for (int i = 0; i < node->num_children; i++) {
-//     print_AST(node->children[i], level + 1);
-//   }
-// }
 
 void write_AST(Node* node, FILE* file, int level) {
   if (file == NULL) {

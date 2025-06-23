@@ -14,7 +14,6 @@ typedef struct Node
 } Node;
 
 
-
 Node *new_node(const char *name, int num_children, ...);
 void print_AST(Node *node, int level);
 void write_AST(Node *node, FILE *file, int level);
