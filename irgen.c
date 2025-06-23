@@ -16,7 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-typedef struct
+typedef struct IRGenerator
 {
     int reg_cnt;                  // 当前寄存器使用个数
     int label_cnt;                // 当前标签使用个数
@@ -69,7 +69,7 @@ static char *new_label(const char *prefix)
 
 //-----------------------------------------------------------------------------
 //-----------------------辅助函数申明--------------------------------------------
-static char *get_btype(Node *btype_node);
+
 char *generate_lval_address(Node *node);
 char *build_llvm_type_str(Node *dim_node, const char *base_type);
 void process_var_def_list(Node *n, const char *base_type);
@@ -120,7 +120,7 @@ static Value *generate_code(Node *node)
         if (params_opt_node->num_children > 0)
             process_param_types(params_opt_node->children[0], &params_list_head);
 
-        char signature[1024] = "";
+        char signature[1024] = ""; // 函数签名
         for (TypeNode *p = params_list_head; p; p = p->next)
         {
             strcat(signature, p->type);
@@ -129,23 +129,26 @@ static Value *generate_code(Node *node)
         }
 
         add_symbol_func(func_name, return_type_str, params_list_head);
+
         g.cur_ret_type = return_type_str;
         g.last_is_terms = 0;
-
+        // 重置全局 IR 状态
         emit("\ndefine dso_local %s @%s(%s) #0 {", return_type_str, func_name, signature);
         emit("entry:");
 
         enter_scope();
         int param_count = 0;
         if (params_opt_node->num_children > 0)
+        {
             count_params(params_opt_node->children[0], &param_count);
-
-        g.reg_cnt = param_count - 1;
+        }
+        g.reg_cnt = param_count - 1; // 让寄存器编号从 %0 开始对齐
 
         param_count = 0; // 重置以进行实际处理。
         if (params_opt_node->num_children > 0)
+        { // 形参搬运
             process_formal_params(params_opt_node->children[0], &param_count);
-
+        }
         free_value(generate_code(block_node));
         exit_scope();
 
@@ -545,7 +548,6 @@ static Value *generate_code(Node *node)
             return new_value(res_reg, "i32");
         }
     }
-
     else if (strcmp(node->name, "FuncCall") == 0)
     {
         char *func_name = node->children[0]->name;
@@ -630,7 +632,7 @@ static Value *generate_code(Node *node)
     else if (strcmp(node->name, "InitVal_Aggregate") == 0)
         return new_value("0", "i32");
 
-    // --- Primitives (LVal, Literals) ---
+    // 数组或者是左值
     else if (strcmp(node->name, "ArrayAccess") == 0 || (strcmp(node->name, "LVal") == 0 && node->num_children == 1))
     {
         char *ptr_reg = generate_lval_address(node);
@@ -649,18 +651,20 @@ static Value *generate_code(Node *node)
         free(ptr_reg);
         return new_value(val_reg, element_type);
     }
-
+    //  变量
     else if (node->num_children == 0)
     {
         Symbol *sym = lookup_symbol(node->name);
         if (sym && !sym->is_func)
         {
+            // 普通变量
             char *val_reg = new_reg();
-            emit("\t%s = load %s, %s* %s", val_reg, sym->type, sym->type, sym->llvm_reg);
+            emit("\t%s = load %s, %s* %s", val_reg, sym->type, sym->type, sym->reg_ptr);
             return new_value(val_reg, sym->type);
         }
         if (strchr(node->name, '.') || strchr(node->name, 'e') || strchr(node->name, 'E'))
         {
+            // 浮点数字面量
             float f_val = (float)atof(node->name);
             union {
                 float f;
@@ -670,9 +674,9 @@ static Value *generate_code(Node *node)
             snprintf(buf, sizeof(buf), "bitcast (i32 %u to float)", bits.u);
             return new_value(strdup(buf), "float");
         }
+        // 整数字面量
         return new_value(node->name, "i32");
     }
-
     else if (node->num_children == 1)
         return generate_code(node->children[0]);
     return NULL;
@@ -681,26 +685,6 @@ static Value *generate_code(Node *node)
 //-----------------------------------------------------------------------------
 //-----------------------辅助函数定义--------------------------------------------
 //-----------------------------------------------------------------------------
-/**
- * @brief 从 `BType | FuncType` 节点推断 **LLVM IR 基本类型字符串**。
- *
- * 仅支持 `int / float / void` 三种，在 SysY 语言中已足够。
- *
- * @param btype_node  类型节点（允许为 NULL）
- * @return            常量串 `"i32" / "float" / "void"`
- */
-static char *get_btype(Node *btype_node)
-{
-    if (btype_node && btype_node->num_children > 0)
-    {
-        Node *tok = btype_node->children[0];
-        if (strcmp(tok->name, "int") == 0)
-            return "i32";
-        if (strcmp(tok->name, "float") == 0)
-            return "float";
-    }
-    return "void";
-}
 
 /***********************************************************************
  *  LVal / 数组工具
@@ -710,7 +694,7 @@ static char *get_btype(Node *btype_node)
 /**
  * @brief 递归生成 “左值” 在栈上的地址（指针寄存器）。
  *
- * - `LVal`           ➜ 直接返回符号表里保存的 `stack_ptr`
+ * - `LVal`           ➜ 直接返回符号表里保存的 `reg_ptr`
  * - `ArrayAccess`    ➜ 先递归拿到基础指针，再 emit GEP
  *
  * @param node  `LVal` 或 `ArrayAccess` 语法节点
@@ -725,7 +709,7 @@ char *generate_lval_address(Node *node)
     {
         Symbol *sym = lookup_symbol(node->children[0]->name);
         if (sym)
-            return strdup(sym->stack_ptr); /* 直接返回栈指针 */
+            return strdup(sym->reg_ptr); /* 直接返回栈指针 */
     }
 
     /* -------- 数组访问：base[idx] ----------------------------- */
@@ -774,10 +758,10 @@ char *build_llvm_type_str(Node *dim_node, const char *base_type)
     if (!dim_node || dim_node->num_children == 0)
         return strdup(base_type);
 
-    /* ① 递归处理剩余维度，先拿到内层类型 */
+    /*  递归处理剩余维度，先拿到内层类型 */
     char *inner_type = build_llvm_type_str(dim_node->children[1], base_type);
 
-    /* ② 当前维度大小应为整型常量表达式 */
+    /*  当前维度大小应为整型常量表达式 */
     Value *dim_val = generate_code(dim_node->children[0]);
     if (strcmp(dim_val->type, "i32") != 0)
     {
@@ -785,11 +769,11 @@ char *build_llvm_type_str(Node *dim_node, const char *base_type)
         exit(1);
     }
 
-    /* ③ 拼装为 “[Size x Inner]” */
+    /*  拼装为 “[Size x Inner]” */
     char buf[512];
     sprintf(buf, "[%s x %s]", dim_val->reg, inner_type);
 
-    /* ④ 资源释放 */
+    /*  资源释放 */
     free(inner_type);
     free_value(dim_val);
 
@@ -821,25 +805,25 @@ void process_var_def_list(Node *n, const char *base_type)
     char *var_name = var_def->children[0]->name;
     Node *dim_list_node = var_def->children[1];
 
-    /* ---------- 1. 计算完整 LLVM 类型 ------------------------ */
+    /* ----------  计算完整 LLVM 类型 ------------------------ */
     char *llvm_type = build_llvm_type_str(dim_list_node, base_type);
 
-    /* ---------- 2. 分配栈槽并加入符号表 ---------------------- */
+    /* ----------  分配栈槽并加入符号表 ---------------------- */
     char *ptr_reg = new_reg();
     emit("\t%s = alloca %s", ptr_reg, llvm_type);
     add_symbol(var_name, llvm_type, ptr_reg, /*is_const=*/0);
 
-    /* ---------- 3. 对数组做零填充 ---------------------------- */
+    /* ----------  对数组做零填充 ---------------------------- */
     if (dim_list_node->num_children > 0)
         emit("\tstore %s zeroinitializer, %s* %s", llvm_type, llvm_type, ptr_reg);
 
-    /* ---------- 4. 处理可选初始化 ---------------------------- */
+    /* ----------  处理可选初始化 ---------------------------- */
     if (strcmp(var_def->name, "VarDef_Init") == 0)
     {
         Node *init_val_node = var_def->children[2];
 
         if (dim_list_node->num_children > 0)
-        { /* -------- 4.a 数组初始化 (递归展开) --------------- */
+        { /* --------  数组初始化 (递归展开) --------------- */
             int dims[10] = {0}, num_dims = 0, flat_idx = 0;
             get_dimensions(dim_list_node, dims, &num_dims);
             generate_initializer_stores(init_val_node, ptr_reg, llvm_type, dims, num_dims, &flat_idx);
@@ -898,7 +882,7 @@ void generate_initializer_stores(Node *init_node, char *base_ptr, char *llvm_typ
 
     if (is_scalar_init(init_node))
     {
-        /* ① 计算子元素在数组中的多维下标 -> 构造 GEP index 列表 */
+        /*  计算子元素在数组中的多维下标 -> 构造 GEP index 列表 */
         Value *val = generate_code(init_node);
 
         char gep_idx[256] = "i32 0"; /* 前置 0：指向首元素 */
@@ -917,7 +901,7 @@ void generate_initializer_stores(Node *init_node, char *base_ptr, char *llvm_typ
             }
         }
 
-        /* ② 得到元素指针并存值 */
+        /*  得到元素指针并存值 */
         char *elem_ptr = new_reg();
         char elem_ty[8];
         strcpy(elem_ty, strstr(llvm_type, "float") ? "float" : "i32");
@@ -935,7 +919,7 @@ void generate_initializer_stores(Node *init_node, char *base_ptr, char *llvm_typ
         emit("\t%s = getelementptr inbounds %s, %s* %s, %s", elem_ptr, llvm_type, llvm_type, base_ptr, gep_idx);
         emit("\tstore %s %s, %s* %s", elem_ty, final_reg, elem_ty, elem_ptr);
 
-        /* ③ 清理 & flat_index++ */
+        /*  清理 & flat_index++ */
         if (final_reg != val->reg)
             free(final_reg);
         free_value(val);
@@ -978,7 +962,7 @@ void get_dimensions(Node *dim_node, int *dims, int *num_dims)
     Value *dim_val = generate_code(dim_node->children[0]);
     dims[(*num_dims)++] = atoi(dim_val->reg); /* 写入并自增维度计数 */
 
-    free_value(dim_val); /* 释放临时 Value  */
+    free_value(dim_val);
 
     /* 递归解析后续维度 */
     get_dimensions(dim_node->children[1], dims, num_dims);
@@ -994,19 +978,19 @@ void get_dimensions(Node *dim_node, int *dims, int *num_dims)
  * ```
  * 该函数保证按源顺序生成 IR，并在离开节点时释放产生的临时值。
  *
- * @param n  AST BlockItemList 结点
+ * @param node  AST BlockItemList 结点
  */
-void process_block_item_list(Node *n)
+void process_block_item_list(Node *node)
 {
-    if (!n || n->num_children == 0)
+    if (!node || node->num_children == 0)
         return;
 
     /* --- 1. 处理当前 BlockItem ---------------------------------- */
-    free_value(generate_code(n->children[0])); /* 可能返回 Value* */
+    free_value(generate_code(node->children[0])); /* 可能返回 Value* */
 
     /* --- 2. 递归处理剩余 BlockItem ------------------------------ */
-    if (n->num_children > 1)
-        process_block_item_list(n->children[1]);
+    if (node->num_children > 1)
+        process_block_item_list(node->children[1]);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1050,19 +1034,19 @@ void process_formal_params(Node *n, int *count)
     char *type_str = get_type_str(param_node->children[0]);
     char *name_str = param_node->children[1]->name;
 
-    /* ① 形参在入口块先 `alloca` 再 `store %N` ------------------- */
+    /*  形参在入口块先 `alloca` 再 `store %N` ------------------- */
     char arg_reg[16];
-    snprintf(arg_reg, sizeof arg_reg, "%%%d", (*count)++);
-    char *stack_ptr = new_reg();
-    emit("\t%s = alloca %s", stack_ptr, type_str);
-    emit("\tstore %s %s, %s* %s", type_str, arg_reg, type_str, stack_ptr);
+    snprintf(arg_reg, sizeof(arg_reg), "%%%d", (*count)++);
+    char *reg_ptr = new_reg();
+    emit("\t%s = alloca %s", reg_ptr, type_str);
+    emit("\tstore %s %s, %s* %s", type_str, arg_reg, type_str, reg_ptr);
 
-    /* ② 将形参加入当前作用域符号表 ------------------------------- */
-    add_symbol(name_str, type_str, stack_ptr, /*is_const=*/0);
+    /*  将形参加入当前作用域符号表 ------------------------------- */
+    add_symbol(name_str, type_str, reg_ptr, /*is_const=*/0);
 
-    free(stack_ptr); /* 仅释放临时字符串，本地变量仍指向符号表值 */
+    free(reg_ptr); /* 仅释放临时字符串，本地变量仍指向符号表值 */
 
-    /* ③ 处理后续 “, param” -------------------------------------- */
+    /*  处理后续 “, param” -------------------------------------- */
     if (n->num_children > 1)
         process_formal_params(n->children[1], count);
 }

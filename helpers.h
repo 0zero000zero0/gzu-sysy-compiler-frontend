@@ -9,4 +9,5 @@ char *get_type_str(Node *type_node);
 void count_params(Node *n, int *count);
 int is_scalar_init(Node *n);
 char *get_lval_type(Node *node);
+
 #endif /* HELPERS_H */

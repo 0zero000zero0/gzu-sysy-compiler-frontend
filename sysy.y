@@ -16,13 +16,11 @@ void yyerror(const char *s);
 Node* ast_root = NULL;
 %}
 
-/* --- Bison Declarations --- */
 %union {
     char* str_val;
     struct Node* node_ptr;
 }
 
-/* --- Token Declarations --- */
 %token <node_ptr> IDENT INCONST FLOACONST
 %token <node_ptr> CONST INT FLOAT VOID
 %token <node_ptr> IF ELSE WHILE BREAK CONTINUE RETURN
@@ -32,7 +30,6 @@ Node* ast_root = NULL;
 %token <node_ptr> LPAREN RPAREN LBRACE RBRACE LBRACK RBRACK
 %token <node_ptr> COMMA SEMICOLON
 
-/* --- Type Declarations for Non-terminals --- */
 %type <node_ptr> CompUnit Decl ConstDecl VarDecl ConstDef_List ConstDef VarDef_List VarDef
 %type <node_ptr> ConstSubscript_List ConstInitVal InitVal FuncDef FuncFParamsOpt FuncFParams OptConstInitVal_List ConstInitVal_List InitVal_List OptInitVal_List
 %type <node_ptr> FuncFParam Block BlockItem_List BlockItem Stmt ExpOpt Exp Cond LVal

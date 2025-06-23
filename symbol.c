@@ -55,7 +55,7 @@ void exit_scope(void)
         next = sym->next; /* 提前保存下一个节点指针 */
         free(sym->name);
         free(sym->type);
-        free(sym->stack_ptr);
+        free(sym->reg_ptr);
         free(sym);
     }
 
@@ -88,13 +88,13 @@ static Symbol *new_sym(const char *name, const char *type)
  *
  * @param name       变量名
  * @param type       LLVM 类型字符串
- * @param stack_ptr  该变量 `alloca` 后的栈指针寄存器（如 "%5"）
+ * @param reg_ptr  该变量 `alloca` 后的栈指针寄存器（如 "%5"）
  * @param is_const   是否为常量（SysY `const` 修饰）
  */
-void add_symbol(const char *name, const char *type, const char *stack_ptr, bool is_const)
+void add_symbol(const char *name, const char *type, const char *reg_ptr, bool is_const)
 {
     Symbol *s = new_sym(name, type);
-    s->stack_ptr = xstrdup(stack_ptr); /* 存储栈地址指针             */
+    s->reg_ptr = xstrdup(reg_ptr); /* 存储栈地址指针             */
     s->is_const = is_const;
     s->is_func = false;
 

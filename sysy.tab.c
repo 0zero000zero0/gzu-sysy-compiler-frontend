@@ -584,16 +584,16 @@ static const yytype_int8 yytranslate[] =
 /* YYRLINE[YYN] -- Source line where rule number YYN was defined.  */
 static const yytype_uint8 yyrline[] =
 {
-       0,    62,    62,    63,    64,    67,    67,    69,    70,    73,
-      75,    76,    78,    80,    82,    83,    86,    87,    91,    92,
-      96,    97,   100,   101,   104,   105,   109,   110,   113,   114,
-     117,   118,   121,   124,   125,   128,   129,   132,   133,   136,
-     138,   139,   141,   141,   144,   145,   146,   147,   148,   149,
-     150,   151,   152,   156,   157,   159,   160,   162,   164,   164,
-     166,   166,   168,   168,   168,   170,   170,   170,   170,   170,
-     172,   172,   172,   174,   174,   174,   174,   177,   178,   179,
-     182,   183,   184,   186,   186,   187,   187,   187,   190,   191,
-     195,   196,   199,   200
+       0,    59,    59,    60,    61,    64,    64,    66,    67,    70,
+      72,    73,    75,    77,    79,    80,    83,    84,    88,    89,
+      93,    94,    97,    98,   101,   102,   106,   107,   110,   111,
+     114,   115,   118,   121,   122,   125,   126,   129,   130,   133,
+     135,   136,   138,   138,   141,   142,   143,   144,   145,   146,
+     147,   148,   149,   153,   154,   156,   157,   159,   161,   161,
+     163,   163,   165,   165,   165,   167,   167,   167,   167,   167,
+     169,   169,   169,   171,   171,   171,   171,   174,   175,   176,
+     179,   180,   181,   183,   183,   184,   184,   184,   187,   188,
+     192,   193,   196,   197
 };
 #endif
 
@@ -1271,553 +1271,553 @@ yyreduce:
   switch (yyn)
     {
   case 2: /* CompUnit: %empty  */
-#line 62 "sysy.y"
+#line 59 "sysy.y"
                      { (yyval.node_ptr) = new_node("CompUnit", 0); ast_root = (yyval.node_ptr); }
 #line 1277 "sysy.tab.c"
     break;
 
   case 3: /* CompUnit: Decl CompUnit  */
-#line 63 "sysy.y"
+#line 60 "sysy.y"
                          { (yyval.node_ptr) = new_node("CompUnit", 2, (yyvsp[-1].node_ptr), (yyvsp[0].node_ptr)); ast_root = (yyval.node_ptr); }
 #line 1283 "sysy.tab.c"
     break;
 
   case 4: /* CompUnit: FuncDef CompUnit  */
-#line 64 "sysy.y"
+#line 61 "sysy.y"
                        { (yyval.node_ptr) = new_node("CompUnit", 2, (yyvsp[-1].node_ptr), (yyvsp[0].node_ptr)); ast_root = (yyval.node_ptr); }
 #line 1289 "sysy.tab.c"
     break;
 
   case 5: /* Decl: ConstDecl  */
-#line 67 "sysy.y"
+#line 64 "sysy.y"
                 { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1295 "sysy.tab.c"
     break;
 
   case 6: /* Decl: VarDecl  */
-#line 67 "sysy.y"
+#line 64 "sysy.y"
                                        { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1301 "sysy.tab.c"
     break;
 
   case 7: /* BType: INT  */
-#line 69 "sysy.y"
+#line 66 "sysy.y"
           { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1307 "sysy.tab.c"
     break;
 
   case 8: /* BType: FLOAT  */
-#line 70 "sysy.y"
+#line 67 "sysy.y"
             { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1313 "sysy.tab.c"
     break;
 
   case 9: /* ConstDecl: CONST BType ConstDef_List SEMICOLON  */
-#line 73 "sysy.y"
+#line 70 "sysy.y"
                                                { (yyval.node_ptr) = new_node("ConstDecl", 2, (yyvsp[-2].node_ptr), (yyvsp[-1].node_ptr)); }
 #line 1319 "sysy.tab.c"
     break;
 
   case 10: /* ConstDef_List: ConstDef  */
-#line 75 "sysy.y"
+#line 72 "sysy.y"
              { (yyval.node_ptr) = new_node("ConstDef_List", 1, (yyvsp[0].node_ptr)); }
 #line 1325 "sysy.tab.c"
     break;
 
   case 11: /* ConstDef_List: ConstDef COMMA ConstDef_List  */
-#line 76 "sysy.y"
+#line 73 "sysy.y"
                                    { (yyval.node_ptr) = new_node("ConstDef_List", 2, (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1331 "sysy.tab.c"
     break;
 
   case 12: /* ConstDef: IDENT ConstSubscript_List ASSIGN ConstInitVal  */
-#line 78 "sysy.y"
+#line 75 "sysy.y"
                                                         { (yyval.node_ptr) = new_node("ConstDef", 3, (yyvsp[-3].node_ptr), (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1337 "sysy.tab.c"
     break;
 
   case 13: /* VarDecl: BType VarDef_List SEMICOLON  */
-#line 80 "sysy.y"
+#line 77 "sysy.y"
                                      { (yyval.node_ptr) = new_node("VarDecl", 2, (yyvsp[-2].node_ptr), (yyvsp[-1].node_ptr)); }
 #line 1343 "sysy.tab.c"
     break;
 
   case 14: /* VarDef_List: VarDef  */
-#line 82 "sysy.y"
+#line 79 "sysy.y"
            { (yyval.node_ptr) = new_node("VarDef_List", 1, (yyvsp[0].node_ptr)); }
 #line 1349 "sysy.tab.c"
     break;
 
   case 15: /* VarDef_List: VarDef COMMA VarDef_List  */
-#line 83 "sysy.y"
+#line 80 "sysy.y"
                                { (yyval.node_ptr) = new_node("VarDef_List", 2, (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1355 "sysy.tab.c"
     break;
 
   case 16: /* VarDef: IDENT ConstSubscript_List  */
-#line 86 "sysy.y"
+#line 83 "sysy.y"
                               { (yyval.node_ptr) = new_node("VarDef", 2, (yyvsp[-1].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1361 "sysy.tab.c"
     break;
 
   case 17: /* VarDef: IDENT ConstSubscript_List ASSIGN InitVal  */
-#line 87 "sysy.y"
+#line 84 "sysy.y"
                                                { (yyval.node_ptr) = new_node("VarDef_Init", 3, (yyvsp[-3].node_ptr), (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1367 "sysy.tab.c"
     break;
 
   case 18: /* ConstSubscript_List: %empty  */
-#line 91 "sysy.y"
+#line 88 "sysy.y"
                 { (yyval.node_ptr) = new_node("ArrayDimList", 0); }
 #line 1373 "sysy.tab.c"
     break;
 
   case 19: /* ConstSubscript_List: LBRACK ConstExp RBRACK ConstSubscript_List  */
-#line 92 "sysy.y"
+#line 89 "sysy.y"
                                                  { (yyval.node_ptr) = new_node("ArrayDimList", 2, (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1379 "sysy.tab.c"
     break;
 
   case 20: /* ConstInitVal: ConstExp  */
-#line 96 "sysy.y"
+#line 93 "sysy.y"
              { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1385 "sysy.tab.c"
     break;
 
   case 21: /* ConstInitVal: LBRACE OptConstInitVal_List RBRACE  */
-#line 97 "sysy.y"
+#line 94 "sysy.y"
                                          { (yyval.node_ptr) = new_node("InitVal_Aggregate", 1, (yyvsp[-1].node_ptr)); }
 #line 1391 "sysy.tab.c"
     break;
 
   case 22: /* OptConstInitVal_List: %empty  */
-#line 100 "sysy.y"
+#line 97 "sysy.y"
                 { (yyval.node_ptr) = new_node("ConstInitVal_List", 0); }
 #line 1397 "sysy.tab.c"
     break;
 
   case 23: /* OptConstInitVal_List: ConstInitVal_List  */
-#line 101 "sysy.y"
+#line 98 "sysy.y"
                         { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1403 "sysy.tab.c"
     break;
 
   case 24: /* ConstInitVal_List: ConstInitVal  */
-#line 104 "sysy.y"
+#line 101 "sysy.y"
                  { (yyval.node_ptr) = new_node("ConstInitVal_List", 1, (yyvsp[0].node_ptr)); }
 #line 1409 "sysy.tab.c"
     break;
 
   case 25: /* ConstInitVal_List: ConstInitVal COMMA ConstInitVal_List  */
-#line 105 "sysy.y"
+#line 102 "sysy.y"
                                            { (yyval.node_ptr) = new_node("ConstInitVal_List", 2, (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1415 "sysy.tab.c"
     break;
 
   case 26: /* InitVal: Exp  */
-#line 109 "sysy.y"
+#line 106 "sysy.y"
         { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1421 "sysy.tab.c"
     break;
 
   case 27: /* InitVal: LBRACE OptInitVal_List RBRACE  */
-#line 110 "sysy.y"
+#line 107 "sysy.y"
                                     { (yyval.node_ptr) = new_node("InitVal_Aggregate", 1, (yyvsp[-1].node_ptr)); }
 #line 1427 "sysy.tab.c"
     break;
 
   case 28: /* OptInitVal_List: %empty  */
-#line 113 "sysy.y"
+#line 110 "sysy.y"
                 { (yyval.node_ptr) = new_node("InitVal_List", 0); }
 #line 1433 "sysy.tab.c"
     break;
 
   case 29: /* OptInitVal_List: InitVal_List  */
-#line 114 "sysy.y"
+#line 111 "sysy.y"
                    { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1439 "sysy.tab.c"
     break;
 
   case 30: /* InitVal_List: InitVal  */
-#line 117 "sysy.y"
+#line 114 "sysy.y"
             { (yyval.node_ptr) = new_node("InitVal_List", 1, (yyvsp[0].node_ptr)); }
 #line 1445 "sysy.tab.c"
     break;
 
   case 31: /* InitVal_List: InitVal COMMA InitVal_List  */
-#line 118 "sysy.y"
+#line 115 "sysy.y"
                                  { (yyval.node_ptr) = new_node("InitVal_List", 2, (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1451 "sysy.tab.c"
     break;
 
   case 32: /* FuncDef: BType IDENT LPAREN FuncFParamsOpt RPAREN Block  */
-#line 121 "sysy.y"
+#line 118 "sysy.y"
                                                         { (yyval.node_ptr) = new_node("FuncDef", 4, (yyvsp[-5].node_ptr), (yyvsp[-4].node_ptr), (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1457 "sysy.tab.c"
     break;
 
   case 33: /* FuncFParamsOpt: %empty  */
-#line 124 "sysy.y"
+#line 121 "sysy.y"
                   { (yyval.node_ptr) = new_node("FuncFParamsOpt", 0); }
 #line 1463 "sysy.tab.c"
     break;
 
   case 34: /* FuncFParamsOpt: FuncFParams  */
-#line 125 "sysy.y"
+#line 122 "sysy.y"
                   { (yyval.node_ptr) = new_node("FuncFParamsOpt", 1, (yyvsp[0].node_ptr)); }
 #line 1469 "sysy.tab.c"
     break;
 
   case 35: /* FuncFParams: FuncFParam  */
-#line 128 "sysy.y"
+#line 125 "sysy.y"
                { (yyval.node_ptr) = new_node("FuncFParams", 1, (yyvsp[0].node_ptr)); }
 #line 1475 "sysy.tab.c"
     break;
 
   case 36: /* FuncFParams: FuncFParam COMMA FuncFParams  */
-#line 129 "sysy.y"
+#line 126 "sysy.y"
                                    { (yyval.node_ptr) = new_node("FuncFParams", 2, (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1481 "sysy.tab.c"
     break;
 
   case 37: /* FuncFParam: BType IDENT  */
-#line 132 "sysy.y"
+#line 129 "sysy.y"
                 { (yyval.node_ptr) = new_node("FuncFParam", 2, (yyvsp[-1].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1487 "sysy.tab.c"
     break;
 
   case 38: /* FuncFParam: BType IDENT LBRACK RBRACK ConstSubscript_List  */
-#line 133 "sysy.y"
+#line 130 "sysy.y"
                                                     { (yyval.node_ptr) = new_node("FuncFParam_Array", 3, (yyvsp[-4].node_ptr), (yyvsp[-3].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1493 "sysy.tab.c"
     break;
 
   case 39: /* Block: LBRACE BlockItem_List RBRACE  */
-#line 136 "sysy.y"
+#line 133 "sysy.y"
                                     { (yyval.node_ptr) = new_node("Block", 1, (yyvsp[-1].node_ptr)); }
 #line 1499 "sysy.tab.c"
     break;
 
   case 40: /* BlockItem_List: %empty  */
-#line 138 "sysy.y"
+#line 135 "sysy.y"
                      { (yyval.node_ptr) = new_node("BlockItemList", 0); }
 #line 1505 "sysy.tab.c"
     break;
 
   case 41: /* BlockItem_List: BlockItem BlockItem_List  */
-#line 139 "sysy.y"
+#line 136 "sysy.y"
                                { (yyval.node_ptr) = new_node("BlockItemList", 2, (yyvsp[-1].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1511 "sysy.tab.c"
     break;
 
   case 42: /* BlockItem: Decl  */
-#line 141 "sysy.y"
+#line 138 "sysy.y"
                 { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1517 "sysy.tab.c"
     break;
 
   case 43: /* BlockItem: Stmt  */
-#line 141 "sysy.y"
+#line 138 "sysy.y"
                                     { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1523 "sysy.tab.c"
     break;
 
   case 44: /* Stmt: LVal ASSIGN Exp SEMICOLON  */
-#line 144 "sysy.y"
+#line 141 "sysy.y"
                               { (yyval.node_ptr) = new_node("AssignStmt", 2, (yyvsp[-3].node_ptr), (yyvsp[-1].node_ptr)); }
 #line 1529 "sysy.tab.c"
     break;
 
   case 45: /* Stmt: ExpOpt SEMICOLON  */
-#line 145 "sysy.y"
+#line 142 "sysy.y"
                                { (yyval.node_ptr) = new_node("ExpStmt", 1, (yyvsp[-1].node_ptr)); }
 #line 1535 "sysy.tab.c"
     break;
 
   case 46: /* Stmt: Block  */
-#line 146 "sysy.y"
+#line 143 "sysy.y"
                                { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1541 "sysy.tab.c"
     break;
 
   case 47: /* Stmt: IF LPAREN Cond RPAREN Stmt  */
-#line 147 "sysy.y"
+#line 144 "sysy.y"
                                            { (yyval.node_ptr) = new_node("IfStmt", 2, (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1547 "sysy.tab.c"
     break;
 
   case 48: /* Stmt: IF LPAREN Cond RPAREN Stmt ELSE Stmt  */
-#line 148 "sysy.y"
+#line 145 "sysy.y"
                                            { (yyval.node_ptr) = new_node("IfElseStmt", 3, (yyvsp[-4].node_ptr), (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1553 "sysy.tab.c"
     break;
 
   case 49: /* Stmt: WHILE LPAREN Cond RPAREN Stmt  */
-#line 149 "sysy.y"
+#line 146 "sysy.y"
                                     { (yyval.node_ptr) = new_node("WhileStmt", 2, (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1559 "sysy.tab.c"
     break;
 
   case 50: /* Stmt: BREAK SEMICOLON  */
-#line 150 "sysy.y"
+#line 147 "sysy.y"
                                { (yyval.node_ptr) = new_node("BreakStmt", 0); }
 #line 1565 "sysy.tab.c"
     break;
 
   case 51: /* Stmt: CONTINUE SEMICOLON  */
-#line 151 "sysy.y"
+#line 148 "sysy.y"
                                { (yyval.node_ptr) = new_node("ContinueStmt", 0); }
 #line 1571 "sysy.tab.c"
     break;
 
   case 52: /* Stmt: RETURN ExpOpt SEMICOLON  */
-#line 152 "sysy.y"
+#line 149 "sysy.y"
                                { (yyval.node_ptr) = new_node("ReturnStmt", 1, (yyvsp[-1].node_ptr)); }
 #line 1577 "sysy.tab.c"
     break;
 
   case 53: /* ExpOpt: %empty  */
-#line 156 "sysy.y"
+#line 153 "sysy.y"
                 { (yyval.node_ptr) = new_node("ExpOpt", 0); }
 #line 1583 "sysy.tab.c"
     break;
 
   case 54: /* ExpOpt: Exp  */
-#line 157 "sysy.y"
+#line 154 "sysy.y"
                 { (yyval.node_ptr) = new_node("ExpOpt", 1, (yyvsp[0].node_ptr)); }
 #line 1589 "sysy.tab.c"
     break;
 
   case 55: /* Cond: LOrExp  */
-#line 159 "sysy.y"
+#line 156 "sysy.y"
              { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1595 "sysy.tab.c"
     break;
 
   case 56: /* ConstExp: AddExp  */
-#line 160 "sysy.y"
+#line 157 "sysy.y"
                  { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1601 "sysy.tab.c"
     break;
 
   case 57: /* Exp: AddExp  */
-#line 162 "sysy.y"
+#line 159 "sysy.y"
             { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1607 "sysy.tab.c"
     break;
 
   case 58: /* LOrExp: LAndExp  */
-#line 164 "sysy.y"
+#line 161 "sysy.y"
                 { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1613 "sysy.tab.c"
     break;
 
   case 59: /* LOrExp: LOrExp OR LAndExp  */
-#line 164 "sysy.y"
+#line 161 "sysy.y"
                                                  { (yyval.node_ptr) = new_node("BinaryOp", 3, (yyvsp[-1].node_ptr), (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1619 "sysy.tab.c"
     break;
 
   case 60: /* LAndExp: EqExp  */
-#line 166 "sysy.y"
+#line 163 "sysy.y"
                { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1625 "sysy.tab.c"
     break;
 
   case 61: /* LAndExp: LAndExp AND EqExp  */
-#line 166 "sysy.y"
+#line 163 "sysy.y"
                                                 { (yyval.node_ptr) = new_node("BinaryOp", 3, (yyvsp[-1].node_ptr), (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1631 "sysy.tab.c"
     break;
 
   case 62: /* EqExp: RelExp  */
-#line 168 "sysy.y"
+#line 165 "sysy.y"
               { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1637 "sysy.tab.c"
     break;
 
   case 63: /* EqExp: EqExp EQ RelExp  */
-#line 168 "sysy.y"
+#line 165 "sysy.y"
                                              { (yyval.node_ptr) = new_node("BinaryOp", 3, (yyvsp[-1].node_ptr), (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1643 "sysy.tab.c"
     break;
 
   case 64: /* EqExp: EqExp NEQ RelExp  */
-#line 168 "sysy.y"
+#line 165 "sysy.y"
                                                                                                               { (yyval.node_ptr) = new_node("BinaryOp", 3, (yyvsp[-1].node_ptr), (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1649 "sysy.tab.c"
     break;
 
   case 65: /* RelExp: AddExp  */
-#line 170 "sysy.y"
+#line 167 "sysy.y"
                { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1655 "sysy.tab.c"
     break;
 
   case 66: /* RelExp: RelExp LT AddExp  */
-#line 170 "sysy.y"
+#line 167 "sysy.y"
                                                { (yyval.node_ptr) = new_node("BinaryOp", 3, (yyvsp[-1].node_ptr), (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1661 "sysy.tab.c"
     break;
 
   case 67: /* RelExp: RelExp GT AddExp  */
-#line 170 "sysy.y"
+#line 167 "sysy.y"
                                                                                                                 { (yyval.node_ptr) = new_node("BinaryOp", 3, (yyvsp[-1].node_ptr), (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1667 "sysy.tab.c"
     break;
 
   case 68: /* RelExp: RelExp LTE AddExp  */
-#line 170 "sysy.y"
+#line 167 "sysy.y"
                                                                                                                                                                                   { (yyval.node_ptr) = new_node("BinaryOp", 3, (yyvsp[-1].node_ptr), (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1673 "sysy.tab.c"
     break;
 
   case 69: /* RelExp: RelExp GTE AddExp  */
-#line 170 "sysy.y"
+#line 167 "sysy.y"
                                                                                                                                                                                                                                                     { (yyval.node_ptr) = new_node("BinaryOp", 3, (yyvsp[-1].node_ptr), (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1679 "sysy.tab.c"
     break;
 
   case 70: /* AddExp: MulExp  */
-#line 172 "sysy.y"
+#line 169 "sysy.y"
                { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1685 "sysy.tab.c"
     break;
 
   case 71: /* AddExp: AddExp PLUS MulExp  */
-#line 172 "sysy.y"
+#line 169 "sysy.y"
                                                  { (yyval.node_ptr) = new_node("BinaryOp", 3, (yyvsp[-1].node_ptr), (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1691 "sysy.tab.c"
     break;
 
   case 72: /* AddExp: AddExp MINUS MulExp  */
-#line 172 "sysy.y"
+#line 169 "sysy.y"
                                                                                                                      { (yyval.node_ptr) = new_node("BinaryOp", 3, (yyvsp[-1].node_ptr), (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1697 "sysy.tab.c"
     break;
 
   case 73: /* MulExp: UnaryExp  */
-#line 174 "sysy.y"
+#line 171 "sysy.y"
                  { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1703 "sysy.tab.c"
     break;
 
   case 74: /* MulExp: MulExp MUL UnaryExp  */
-#line 174 "sysy.y"
+#line 171 "sysy.y"
                                                     { (yyval.node_ptr) = new_node("BinaryOp", 3, (yyvsp[-1].node_ptr), (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1709 "sysy.tab.c"
     break;
 
   case 75: /* MulExp: MulExp DIV UnaryExp  */
-#line 174 "sysy.y"
+#line 171 "sysy.y"
                                                                                                                         { (yyval.node_ptr) = new_node("BinaryOp", 3, (yyvsp[-1].node_ptr), (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1715 "sysy.tab.c"
     break;
 
   case 76: /* MulExp: MulExp MOD UnaryExp  */
-#line 174 "sysy.y"
+#line 171 "sysy.y"
                                                                                                                                                                                             { (yyval.node_ptr) = new_node("BinaryOp", 3, (yyvsp[-1].node_ptr), (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1721 "sysy.tab.c"
     break;
 
   case 77: /* UnaryExp: PrimaryExp  */
-#line 177 "sysy.y"
+#line 174 "sysy.y"
                { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1727 "sysy.tab.c"
     break;
 
   case 78: /* UnaryExp: IDENT LPAREN FuncRParamsOpt RPAREN  */
-#line 178 "sysy.y"
+#line 175 "sysy.y"
                                          { (yyval.node_ptr) = new_node("FuncCall", 2, (yyvsp[-3].node_ptr), (yyvsp[-1].node_ptr)); }
 #line 1733 "sysy.tab.c"
     break;
 
   case 79: /* UnaryExp: UnaryOp UnaryExp  */
-#line 179 "sysy.y"
+#line 176 "sysy.y"
                        { (yyval.node_ptr) = new_node("UnaryOp", 2, (yyvsp[-1].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1739 "sysy.tab.c"
     break;
 
   case 80: /* PrimaryExp: LPAREN Exp RPAREN  */
-#line 182 "sysy.y"
+#line 179 "sysy.y"
                       { (yyval.node_ptr) = (yyvsp[-1].node_ptr); }
 #line 1745 "sysy.tab.c"
     break;
 
   case 81: /* PrimaryExp: LVal  */
-#line 183 "sysy.y"
+#line 180 "sysy.y"
            { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1751 "sysy.tab.c"
     break;
 
   case 82: /* PrimaryExp: Number  */
-#line 184 "sysy.y"
+#line 181 "sysy.y"
              { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1757 "sysy.tab.c"
     break;
 
   case 83: /* Number: INCONST  */
-#line 186 "sysy.y"
+#line 183 "sysy.y"
                 { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1763 "sysy.tab.c"
     break;
 
   case 84: /* Number: FLOACONST  */
-#line 186 "sysy.y"
+#line 183 "sysy.y"
                                          { (yyval.node_ptr) = (yyvsp[0].node_ptr); }
 #line 1769 "sysy.tab.c"
     break;
 
   case 85: /* UnaryOp: PLUS  */
-#line 187 "sysy.y"
+#line 184 "sysy.y"
               {(yyval.node_ptr) = (yyvsp[0].node_ptr);}
 #line 1775 "sysy.tab.c"
     break;
 
   case 86: /* UnaryOp: MINUS  */
-#line 187 "sysy.y"
+#line 184 "sysy.y"
                                  {(yyval.node_ptr) = (yyvsp[0].node_ptr);}
 #line 1781 "sysy.tab.c"
     break;
 
   case 87: /* UnaryOp: NOT  */
-#line 187 "sysy.y"
+#line 184 "sysy.y"
                                                   {(yyval.node_ptr) = (yyvsp[0].node_ptr);}
 #line 1787 "sysy.tab.c"
     break;
 
   case 88: /* LVal: IDENT  */
-#line 190 "sysy.y"
+#line 187 "sysy.y"
           { (yyval.node_ptr) = new_node("LVal", 1, (yyvsp[0].node_ptr)); }
 #line 1793 "sysy.tab.c"
     break;
 
   case 89: /* LVal: LVal LBRACK Exp RBRACK  */
-#line 191 "sysy.y"
+#line 188 "sysy.y"
                              { (yyval.node_ptr) = new_node("ArrayAccess", 2, (yyvsp[-3].node_ptr), (yyvsp[-1].node_ptr)); }
 #line 1799 "sysy.tab.c"
     break;
 
   case 90: /* FuncRParamsOpt: %empty  */
-#line 195 "sysy.y"
+#line 192 "sysy.y"
                   { (yyval.node_ptr) = new_node("FuncRParamsOpt", 0); }
 #line 1805 "sysy.tab.c"
     break;
 
   case 91: /* FuncRParamsOpt: FuncRParams  */
-#line 196 "sysy.y"
+#line 193 "sysy.y"
                   { (yyval.node_ptr) = new_node("FuncRParamsOpt", 1, (yyvsp[0].node_ptr)); }
 #line 1811 "sysy.tab.c"
     break;
 
   case 92: /* FuncRParams: Exp  */
-#line 199 "sysy.y"
+#line 196 "sysy.y"
         { (yyval.node_ptr) = new_node("FuncRParams", 1, (yyvsp[0].node_ptr)); }
 #line 1817 "sysy.tab.c"
     break;
 
   case 93: /* FuncRParams: Exp COMMA FuncRParams  */
-#line 200 "sysy.y"
+#line 197 "sysy.y"
                             { (yyval.node_ptr) = new_node("FuncRParams", 2, (yyvsp[-2].node_ptr), (yyvsp[0].node_ptr)); }
 #line 1823 "sysy.tab.c"
     break;
@@ -2016,7 +2016,7 @@ yyreturnlab:
   return yyresult;
 }
 
-#line 203 "sysy.y"
+#line 200 "sysy.y"
 
 void yyerror(const char *s) {
     fprintf(stderr, "Syntax Error at line %d: %s near '%s'\n", yylineno, s, yytext);

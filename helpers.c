@@ -90,14 +90,14 @@ char *get_lval_type(Node *node)
     /* -------- 多维数组访问：递归向内剥一维 --------------------- */
     if (strcmp(node->name, "ArrayAccess") == 0)
     {
-        /* ① 先拿到基类型（可能仍是多维） */
+        /*  先拿到基类型（可能仍是多维） */
         char *base_type = get_lval_type(node->children[0]);
 
-        /* ② 尝试在形如 "[10 x [2 x i32]]" 中定位第一个 'x' */
+        /*  尝试在形如 "[10 x [2 x i32]]" 中定位第一个 'x' */
         char *element_type = strchr(base_type, 'x');
         if (element_type)
         {
-            /* ③ 构造去掉最外层维度的字符串 */
+            /*  构造去掉最外层维度的字符串 */
             char buf[256];
             /* element_type + 2 跳过 "x " 两字符 */
             strcpy(buf, element_type + 2);
@@ -108,10 +108,31 @@ char *get_lval_type(Node *node)
             return strdup(buf); /* 返回元素类型 */
         }
 
-        /* ④ base_type 已经是最终元素类型（如 "i32" / "float"） */
+        /*  base_type 已经是最终元素类型（如 "i32" / "float"） */
         return base_type;
     }
 
     /* 非法节点 */
     return NULL;
+}
+
+/**
+ * @brief 从 `BType | FuncType` 节点推断 **LLVM IR 基本类型字符串**。
+ *
+ * 仅支持 `int / float / void` 三种，在 SysY 语言中已足够。
+ *
+ * @param btype_node  类型节点（允许为 NULL）
+ * @return            常量串 `"i32" / "float" / "void"`
+ */
+char *get_btype(Node *btype_node)
+{
+    if (btype_node && btype_node->num_children > 0)
+    {
+        Node *tok = btype_node->children[0];
+        if (strcmp(tok->name, "int") == 0)
+            return "i32";
+        if (strcmp(tok->name, "float") == 0)
+            return "float";
+    }
+    return "void";
 }
