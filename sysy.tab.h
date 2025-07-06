@@ -99,7 +99,7 @@ extern int yydebug;
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 union YYSTYPE
 {
-#line 19 "sysy.y"
+#line 23 "sysy.y"
 
     char* str_val;
     struct Node* node_ptr;

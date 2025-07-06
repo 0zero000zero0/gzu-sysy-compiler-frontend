@@ -14,6 +14,10 @@ extern FILE *yyin;
 extern char *yytext;
 void yyerror(const char *s);
 Node* ast_root = NULL;
+
+// 添加这两个函数的声明，以便main函数可以调用
+void set_lex_output_file(const char* filename);
+void close_lex_output_file();
 %}
 
 %union {
@@ -204,7 +208,8 @@ void yyerror(const char *s) {
 
 int main(int argc, char **argv) {
     if (argc <= 2) {
-        printf("Usage: %s <input-file> [ir-output-file] [AST-output-file]\n", argv[0]);
+        // 更新用法说明，增加第四个可选参数
+        printf("Usage: %s <input-file> <ir-output-file> [ast-output-file] [lex-output-file]\n", argv[0]);
         return 1;
     }
 
@@ -215,16 +220,38 @@ int main(int argc, char **argv) {
     }
     yyin = file;
 
-    const char* ir_output_filename = argv[2] ;
-    FILE *ast_output_file = fopen(argv[3], "w");
+    // 如果供了第四个参数，则将其用作词法分析的输出文件
+    if (argc > 4) {
+        set_lex_output_file(argv[4]);
+    }
+    const char* ir_output_filename = argv[2];
+    FILE *ast_output_file = NULL;
+
+    // AST输出文件现在是第三个参数
+    if (argc > 3) {
+      ast_output_file = fopen(argv[3], "w");
+       if (!ast_output_file) {
+             perror(argv[3]);
+             fclose(file);
+             close_lex_output_file();
+             return 1;
+        }
+    }
+
     if (yyparse() == 0) {
-        write_AST(ast_root, ast_output_file, 0);
-        fflush(ast_output_file);
+        if(ast_output_file) {
+            write_AST(ast_root, ast_output_file, 0);
+            fflush(ast_output_file);
+        }
         generate_llvm_ir(ast_root, ir_output_filename);
     } else {
         printf("Parse failed.\n");
     }
-    fclose(ast_output_file);
+    // 关闭所有打开的文件
+    if(ast_output_file) {
+        fclose(ast_output_file);
+    }
+    close_lex_output_file(); // 关闭词法分析输出文件
     fclose(file);
     return 0;
 }
